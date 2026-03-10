@@ -12,6 +12,8 @@ The service is designed to be fail-safe and defensive by default:
 
 ## Build
 
+Local build:
+
 ```bash
 go build -o cwproxy ./cmd/cwproxy
 ```
@@ -21,6 +23,12 @@ On Windows:
 ```powershell
 go build -o .\cwproxy.exe .\cmd\cwproxy
 ```
+
+Distribution builds:
+
+- GitHub Pages release archives are built with `CGO_ENABLED=0`
+- Linux binaries used for the container image are built with `CGO_ENABLED=0`
+- The runtime image in [Dockerfile](/C:/Users/pmh/Source/cwproxy/Dockerfile) copies those prebuilt static Linux binaries instead of compiling inside Docker
 
 ## Configuration
 

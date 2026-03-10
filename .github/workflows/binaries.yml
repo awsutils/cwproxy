@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
     outputs:
       artifact-name: github-pages
     steps:
@@ -47,7 +49,7 @@ jobs:
             output_bin="${output_dir}/cwproxy${ext}"
             mkdir -p "$output_dir"
 
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+            GOOS="$goos" GOARCH="$goarch" \
               go build -trimpath -ldflags="-s -w" -o "$output_bin" ./cmd/cwproxy
 
             archive_name="cwproxy-${goos}-${goarch}"
