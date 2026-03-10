@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/awsutils/cwproxy/internal/logging"
 	"github.com/awsutils/cwproxy/internal/metadata"
@@ -73,6 +75,36 @@ func (m *metricCapture) Publish(_ context.Context, data []metrics.Datum) error {
 
 func (m *metricCapture) Close(context.Context) error {
 	return nil
+}
+
+type failingProxySink struct {
+	err error
+}
+
+func (s failingProxySink) Log(context.Context, logging.Entry) error {
+	return s.err
+}
+
+func (s failingProxySink) Close(context.Context) error {
+	return nil
+}
+
+type failingProxyPublisher struct {
+	err error
+}
+
+func (p failingProxyPublisher) Publish(context.Context, []metrics.Datum) error {
+	return p.err
+}
+
+func (p failingProxyPublisher) Close(context.Context) error {
+	return nil
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 func TestHandlerCapturesExchangeAndPublishesMetrics(t *testing.T) {
@@ -294,6 +326,112 @@ func TestHandlerUsesMetricAwareSinkForCombinedEmission(t *testing.T) {
 	defer publisher.mu.Unlock()
 	if len(publisher.data) != 0 {
 		t.Fatalf("fallback publisher unexpectedly used: %#v", publisher.data)
+	}
+}
+
+func TestHandlerRecoversFromProxyPanics(t *testing.T) {
+	t.Parallel()
+
+	sink := &captureSink{}
+	publisher := &metricCapture{}
+	reported := make([]string, 0, 1)
+	handler := New(&url.URL{Scheme: "http", Host: "127.0.0.1:8080"}, sink, publisher, Options{
+		AppName: "cwproxy",
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			panic("transport panic")
+		}),
+		Reporter: func(format string, args ...any) {
+			reported = append(reported, format)
+		},
+		Now: func() time.Time {
+			return time.Unix(0, 0)
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "http://example.com/panic", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("response code = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+	if len(reported) == 0 || !strings.Contains(reported[0], "reverse proxy panic recovered") {
+		t.Fatalf("reporter messages = %#v", reported)
+	}
+
+	sink.mu.Lock()
+	if len(sink.entries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(sink.entries))
+	}
+	entry := sink.entries[0]
+	sink.mu.Unlock()
+	if entry.Response.Status != http.StatusInternalServerError {
+		t.Fatalf("entry response status = %d", entry.Response.Status)
+	}
+
+	publisher.mu.Lock()
+	defer publisher.mu.Unlock()
+	if !containsMetric(publisher.data, "5XXStatusCode", map[string]string{"AppName": "cwproxy"}) {
+		t.Fatalf("aggregate 5XXStatusCode metric missing: %#v", publisher.data)
+	}
+}
+
+func TestHandlerReportsSinkAndPublisherFailures(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+
+	targetURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("Parse upstream URL: %v", err)
+	}
+
+	reported := make([]string, 0, 2)
+	handler := New(targetURL, failingProxySink{err: errors.New("sink failed")}, failingProxyPublisher{err: errors.New("publish failed")}, Options{
+		AppName: "cwproxy",
+		Reporter: func(format string, args ...any) {
+			reported = append(reported, format)
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "http://example.com/failure-path", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response code = %d, want 200", recorder.Code)
+	}
+	if len(reported) != 2 {
+		t.Fatalf("reporter messages = %#v, want 2", reported)
+	}
+	if !strings.Contains(reported[0], "failed to write log entry") {
+		t.Fatalf("first reporter message = %q", reported[0])
+	}
+	if !strings.Contains(reported[1], "failed to publish proxy metrics") {
+		t.Fatalf("second reporter message = %q", reported[1])
+	}
+}
+
+func TestSplitHostPortHandlesMalformedInputs(t *testing.T) {
+	t.Parallel()
+
+	host, port := splitHostPort("example.com:not-a-port", false)
+	if host != "example.com:not-a-port" || port != 80 {
+		t.Fatalf("splitHostPort malformed = (%q, %d)", host, port)
+	}
+
+	host, port = splitHostPort("", true)
+	if host != "" || port != 443 {
+		t.Fatalf("splitHostPort tls default = (%q, %d)", host, port)
+	}
+
+	host, port = splitHostPort("[2001:db8::1]", false)
+	if host != "2001:db8::1" || port != 80 {
+		t.Fatalf("splitHostPort ipv6 = (%q, %d)", host, port)
 	}
 }
 

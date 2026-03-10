@@ -3,6 +3,7 @@ package cwlogs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/smithy-go"
 	"github.com/awsutils/cwproxy/internal/logging"
 	"github.com/awsutils/cwproxy/internal/metadata"
 	"github.com/awsutils/cwproxy/internal/metrics"
@@ -19,23 +21,46 @@ type fakeLogsClient struct {
 	createGroupCalls  int
 	createStreamCalls int
 	inputs            []*cloudwatchlogs.PutLogEventsInput
+	createGroupErr    error
+	createStreamErr   error
+	putErr            error
 }
 
 func (f *fakeLogsClient) CreateLogGroup(context.Context, *cloudwatchlogs.CreateLogGroupInput, ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.CreateLogGroupOutput, error) {
 	f.createGroupCalls++
-	return &cloudwatchlogs.CreateLogGroupOutput{}, nil
+	return &cloudwatchlogs.CreateLogGroupOutput{}, f.createGroupErr
 }
 
 func (f *fakeLogsClient) CreateLogStream(context.Context, *cloudwatchlogs.CreateLogStreamInput, ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.CreateLogStreamOutput, error) {
 	f.createStreamCalls++
-	return &cloudwatchlogs.CreateLogStreamOutput{}, nil
+	return &cloudwatchlogs.CreateLogStreamOutput{}, f.createStreamErr
 }
 
 func (f *fakeLogsClient) PutLogEvents(_ context.Context, input *cloudwatchlogs.PutLogEventsInput, _ ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.PutLogEventsOutput, error) {
 	copied := *input
 	copied.LogEvents = append([]types.InputLogEvent(nil), input.LogEvents...)
 	f.inputs = append(f.inputs, &copied)
-	return &cloudwatchlogs.PutLogEventsOutput{}, nil
+	return &cloudwatchlogs.PutLogEventsOutput{}, f.putErr
+}
+
+type fakeAPIError struct {
+	code string
+}
+
+func (f fakeAPIError) Error() string {
+	return f.code
+}
+
+func (f fakeAPIError) ErrorCode() string {
+	return f.code
+}
+
+func (f fakeAPIError) ErrorMessage() string {
+	return f.code
+}
+
+func (f fakeAPIError) ErrorFault() smithy.ErrorFault {
+	return smithy.FaultClient
 }
 
 func TestSinkInitializesAndFlushesEvents(t *testing.T) {
@@ -392,6 +417,107 @@ func TestSinkLogHealthWithMetricsEmbedsResponseBody(t *testing.T) {
 	}
 	if !strings.Contains(message, "\"_aws\"") {
 		t.Fatalf("EMF envelope missing from health log event: %q", message)
+	}
+}
+
+func TestNewAllowsExistingCloudWatchResources(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeLogsClient{
+		createGroupErr:  fakeAPIError{code: "ResourceAlreadyExistsException"},
+		createStreamErr: fakeAPIError{code: "ResourceAlreadyExistsException"},
+	}
+
+	sink, err := New(context.Background(), client, "/app/log/cwproxy", Options{
+		AppName:       "cwproxy",
+		StreamName:    "stream-1",
+		FlushInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if err := sink.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if client.createGroupCalls != 1 || client.createStreamCalls != 1 {
+		t.Fatalf("resource creation calls = (%d, %d), want (1, 1)", client.createGroupCalls, client.createStreamCalls)
+	}
+}
+
+func TestNewReturnsWrappedCreateStreamFailure(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeLogsClient{
+		createStreamErr: errors.New("boom"),
+	}
+
+	_, err := New(context.Background(), client, "/app/log/cwproxy", Options{
+		AppName:    "cwproxy",
+		StreamName: "stream-1",
+	})
+	if err == nil {
+		t.Fatal("expected New to fail")
+	}
+	if !strings.Contains(err.Error(), "create log stream") {
+		t.Fatalf("error = %v, want create log stream context", err)
+	}
+}
+
+func TestSinkRejectsOversizedAndQueuedEventsWhenBackpressured(t *testing.T) {
+	t.Parallel()
+
+	reported := make([]string, 0, 2)
+	sink := &Sink{
+		queue:         make(chan enqueuedEvent, 1),
+		maxEventBytes: 4,
+		reporter: func(format string, args ...any) {
+			reported = append(reported, format)
+		},
+	}
+
+	if err := sink.enqueueMessage(context.Background(), []byte("12345"), 1); err == nil {
+		t.Fatal("expected oversized event to fail")
+	}
+	if !strings.Contains(strings.Join(reported, " "), "dropping oversized") {
+		t.Fatalf("reporter messages = %#v", reported)
+	}
+
+	sink.maxEventBytes = 1024
+	if err := sink.enqueueMessage(context.Background(), []byte("ok"), 1); err != nil {
+		t.Fatalf("first enqueueMessage returned error: %v", err)
+	}
+	if err := sink.enqueueMessage(context.Background(), []byte("full"), 1); err == nil {
+		t.Fatal("expected queue full error")
+	}
+}
+
+func TestSinkPublishRequiresHealthNamespace(t *testing.T) {
+	t.Parallel()
+
+	sink := &Sink{}
+	err := sink.Publish(context.Background(), []metrics.Datum{{Name: "HealthStatus", Value: 1}})
+	if err == nil {
+		t.Fatal("expected Publish to fail without a health namespace")
+	}
+	if !strings.Contains(err.Error(), "health metric namespace") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSinkLogReturnsErrorWhenClosed(t *testing.T) {
+	t.Parallel()
+
+	sink := &Sink{}
+	sink.closed.Store(true)
+
+	err := sink.Log(context.Background(), logging.NewEntry(
+		"cwproxy",
+		logging.Request{Method: http.MethodGet, Path: "/health"},
+		logging.Response{Status: http.StatusOK},
+		time.Millisecond,
+	))
+	if err == nil {
+		t.Fatal("expected Log to fail after Close")
 	}
 }
 
