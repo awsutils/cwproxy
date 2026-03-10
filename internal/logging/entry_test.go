@@ -2,6 +2,7 @@ package logging
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
@@ -42,7 +43,11 @@ func TestMarshalProducesStableJSON(t *testing.T) {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 
-	want := `{"_q":"cwproxy POST /api/foo 200 123.000ms","app_name":"cwproxy","delay":123.000,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"}},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"}}}`
+	want := fmt.Sprintf(`{"_q":"cwproxy POST /api/foo 200 123.000ms","app_name":"cwproxy","delay":123.000,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"queries_hash":"%s","cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"},"body_hash":"%s"},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"},"body_hash":"%s"}}`,
+		queryStructureHash(map[string]any{"key": "value"}),
+		bodyStructureHash(map[string]any{"field": "value"}),
+		bodyStructureHash(map[string]any{"result": "ok"}),
+	)
 	if string(got) != want {
 		t.Fatalf("Marshal() = %s, want %s", got, want)
 	}
@@ -188,5 +193,63 @@ func TestMarshalIncludesAWSMetadata(t *testing.T) {
 	want := `{"_q":"cwproxy GET /health 200 1.000ms","app_name":"cwproxy","aws_meta":{"ec2":{"instance_id":"i-123","region":"ap-northeast-2"},"eks":{"cluster_name":"demo-eks","pod_name":"cwproxy-123"}},"delay":1.000,"request":{"time":0,"host":"","port":0,"path":"/health","method":"GET","url":"","queries":{},"cookies":{},"headers":{},"body":null},"response":{"time":0,"status":200,"headers":{},"set_cookies":{},"body":null}}`
 	if string(body) != want {
 		t.Fatalf("Marshal() = %s, want %s", body, want)
+	}
+}
+
+func TestStructureHashesIgnoreBodyValuesButTrackShapeChanges(t *testing.T) {
+	t.Parallel()
+
+	first := bodyStructureHash(map[string]any{
+		"user": map[string]any{
+			"id":   1,
+			"name": "alice",
+		},
+	})
+	second := bodyStructureHash(map[string]any{
+		"user": map[string]any{
+			"id":   99,
+			"name": "bob",
+		},
+	})
+	third := bodyStructureHash(map[string]any{
+		"user": map[string]any{
+			"id": 1,
+		},
+	})
+
+	if first == "" {
+		t.Fatal("expected first hash to be populated")
+	}
+	if first != second {
+		t.Fatalf("hash changed when only values changed: %q != %q", first, second)
+	}
+	if first == third {
+		t.Fatalf("hash did not change when keys changed: %q", first)
+	}
+}
+
+func TestQueryStructureHashIgnoresValues(t *testing.T) {
+	t.Parallel()
+
+	first := queryStructureHash(map[string]any{
+		"alpha": "1",
+		"beta":  []string{"x", "y"},
+	})
+	second := queryStructureHash(map[string]any{
+		"alpha": "999",
+		"beta":  []string{"a", "b", "c"},
+	})
+	third := queryStructureHash(map[string]any{
+		"alpha": "1",
+	})
+
+	if first == "" {
+		t.Fatal("expected first hash to be populated")
+	}
+	if first != second {
+		t.Fatalf("query hash changed when only values changed: %q != %q", first, second)
+	}
+	if first == third {
+		t.Fatalf("query hash did not change when keys changed: %q", first)
 	}
 }

@@ -27,16 +27,18 @@ type Entry struct {
 type Duration float64
 
 type Request struct {
-	Time    int64          `json:"time"`
-	Host    string         `json:"host"`
-	Port    int            `json:"port"`
-	Path    string         `json:"path"`
-	Method  string         `json:"method"`
-	URL     string         `json:"url"`
-	Queries map[string]any `json:"queries"`
-	Cookies map[string]any `json:"cookies"`
-	Headers map[string]any `json:"headers"`
-	Body    any            `json:"body"`
+	Time        int64          `json:"time"`
+	Host        string         `json:"host"`
+	Port        int            `json:"port"`
+	Path        string         `json:"path"`
+	Method      string         `json:"method"`
+	URL         string         `json:"url"`
+	Queries     map[string]any `json:"queries"`
+	QueriesHash string         `json:"queries_hash,omitempty"`
+	Cookies     map[string]any `json:"cookies"`
+	Headers     map[string]any `json:"headers"`
+	Body        any            `json:"body"`
+	BodyHash    string         `json:"body_hash,omitempty"`
 }
 
 type Response struct {
@@ -45,6 +47,7 @@ type Response struct {
 	Headers    map[string]any `json:"headers"`
 	SetCookies map[string]any `json:"set_cookies"`
 	Body       any            `json:"body"`
+	BodyHash   string         `json:"body_hash,omitempty"`
 }
 
 func NewEntry(appName string, request Request, response Response, delay time.Duration) Entry {
@@ -182,6 +185,12 @@ func ensureRequest(request Request) Request {
 	if request.Headers == nil {
 		request.Headers = map[string]any{}
 	}
+	if request.QueriesHash == "" {
+		request.QueriesHash = queryStructureHash(request.Queries)
+	}
+	if request.BodyHash == "" {
+		request.BodyHash = bodyStructureHash(request.Body)
+	}
 	return request
 }
 
@@ -191,6 +200,9 @@ func ensureResponse(response Response) Response {
 	}
 	if response.SetCookies == nil {
 		response.SetCookies = map[string]any{}
+	}
+	if response.BodyHash == "" {
+		response.BodyHash = bodyStructureHash(response.Body)
 	}
 	return response
 }

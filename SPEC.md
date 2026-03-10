@@ -4,6 +4,8 @@
 
 When available, logs must include auto-detected AWS runtime metadata for EC2, ECS, and EKS.
 
+Logs must also include stable structural hashes for request queries, request bodies, and response bodies.
+
 The application must be fail-safe, robust, performance-optimized, and efficient by default. Every component should handle errors defensively, avoid process crashes whenever recovery is possible, and continue operating safely under unexpected conditions.
 
 Use current, well-supported Go and infrastructure technologies where they provide clear operational value. Prefer designs that reduce latency, CPU usage, memory usage, and overall resource consumption without weakening reliability.
@@ -105,16 +107,19 @@ Example stdout log entry:
     "method": "POST",
     "url": "example.com:8080/api/foo?key=value",
     "queries": { "key": "value" },
+    "queries_hash": "1f2e3d4c5b6a79801f2e3d4c5b6a7980",
     "cookies": { "session": "abc" },
     "headers": { "Content-Type": "application/json" },
-    "body": { "field": "value" }
+    "body": { "field": "value" },
+    "body_hash": "0f1e2d3c4b5a69780f1e2d3c4b5a6978"
   },
   "response": {
     "time": 1700000000123,
     "status": 200,
     "headers": { "Content-Type": "application/json" },
     "set_cookies": { "session": "xyz" },
-    "body": { "result": "ok" }
+    "body": { "result": "ok" },
+    "body_hash": "abcdef0123456789abcdef0123456789"
   }
 }
 ```
@@ -127,6 +132,8 @@ Example stdout log entry:
 - `body`: parsed as an object when `Content-Type` is `application/json` or `application/x-www-form-urlencoded`; otherwise stored as a raw string
 - Truncated request or response bodies must be marked with `...(truncated)` instead of causing unbounded memory growth
 - `aws_meta`: optional AWS runtime metadata with any detected EC2, ECS, and EKS details
+- `queries_hash`: stable hash of the request query structure
+- `request.body_hash` and `response.body_hash`: stable hashes of body structure based on keys and container shape only, ignoring scalar values
 
 ---
 
