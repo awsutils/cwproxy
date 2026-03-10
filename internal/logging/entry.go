@@ -11,14 +11,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/awsutils/cwproxy/internal/metadata"
 )
 
 type Entry struct {
-	Summary  string   `json:"_q"`
-	AppName  string   `json:"app_name"`
-	Delay    Duration `json:"delay"`
-	Request  Request  `json:"request"`
-	Response Response `json:"response"`
+	Summary  string             `json:"_q"`
+	AppName  string             `json:"app_name"`
+	Metadata *metadata.Snapshot `json:"aws_meta,omitempty"`
+	Delay    Duration           `json:"delay"`
+	Request  Request            `json:"request"`
+	Response Response           `json:"response"`
 }
 
 type Duration float64

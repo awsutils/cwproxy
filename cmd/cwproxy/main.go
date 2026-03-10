@@ -19,6 +19,7 @@ import (
 	"github.com/awsutils/cwproxy/internal/config"
 	"github.com/awsutils/cwproxy/internal/health"
 	"github.com/awsutils/cwproxy/internal/logging"
+	"github.com/awsutils/cwproxy/internal/metadata"
 	"github.com/awsutils/cwproxy/internal/metrics"
 	"github.com/awsutils/cwproxy/internal/proxy"
 )
@@ -43,10 +44,17 @@ func run() error {
 	rootContext, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	metadataContext, metadataCancel := context.WithTimeout(rootContext, 200*time.Millisecond)
+	runtimeMetadata := metadata.Load(metadataContext, metadata.Options{
+		Reporter: reporter.Printf,
+	})
+	metadataCancel()
+
 	stdoutSink := logging.NewStdoutSink(os.Stdout)
 	logSink := logging.Sink(stdoutSink)
 	proxyMetricPublisher := metrics.Publisher(metrics.NopPublisher{})
 	healthMetricPublisher := metrics.Publisher(metrics.NopPublisher{})
+	var healthSink logging.Sink
 
 	closers := []contextCloser{stdoutSink}
 
@@ -78,7 +86,7 @@ func run() error {
 				closers = append(closers, trafficLogSink)
 			}
 
-			healthLogSink, healthSinkErr := cwlogs.New(rootContext, client, cfg.HealthLogGroupName, cwlogs.Options{
+			healthCWSink, healthSinkErr := cwlogs.New(rootContext, client, cfg.HealthLogGroupName, cwlogs.Options{
 				AppName:               cfg.AppName,
 				HealthMetricNamespace: "app/health",
 				StreamName:            sanitizeStreamName(cfg.AppName+"-health", now, os.Getpid()),
@@ -87,14 +95,16 @@ func run() error {
 			if healthSinkErr != nil {
 				reporter.Printf("failed to initialize CloudWatch health sink: %v", healthSinkErr)
 			} else {
-				healthMetricPublisher = healthLogSink
-				closers = append(closers, healthLogSink)
+				healthMetricPublisher = healthCWSink
+				healthSink = healthCWSink
+				closers = append(closers, healthCWSink)
 			}
 		}
 	}
 
 	handler := proxy.New(cfg.TargetURL, logSink, proxyMetricPublisher, proxy.Options{
 		AppName:         cfg.AppName,
+		Metadata:        runtimeMetadata,
 		MaxCaptureBytes: cfg.CaptureBodyLimit,
 		Reporter:        reporter.Printf,
 	})
@@ -109,9 +119,12 @@ func run() error {
 	}
 
 	healthRunner := health.NewRunner(cfg.HealthURLs, healthMetricPublisher, health.Options{
-		AppName:  cfg.AppName,
-		Interval: cfg.HealthInterval,
-		Reporter: reporter.Printf,
+		AppName:         cfg.AppName,
+		Metadata:        runtimeMetadata,
+		Interval:        cfg.HealthInterval,
+		Sink:            healthSink,
+		MaxCaptureBytes: cfg.CaptureBodyLimit,
+		Reporter:        reporter.Printf,
 	})
 
 	go healthRunner.Run(rootContext)

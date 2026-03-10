@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/awsutils/cwproxy/internal/metadata"
 )
 
 func TestMarshalProducesStableJSON(t *testing.T) {
@@ -150,5 +152,41 @@ func TestMarshalForCloudWatchInsertsNewlineAfterSummary(t *testing.T) {
 	want := "{\"_q\":\"cwproxy GET /health 200 1.500ms\",\n\"app_name\":\"cwproxy\",\"delay\":1.500,\"request\":{\"time\":0,\"host\":\"\",\"port\":0,\"path\":\"/health\",\"method\":\"GET\",\"url\":\"\",\"queries\":{},\"cookies\":{},\"headers\":{},\"body\":null},\"response\":{\"time\":0,\"status\":200,\"headers\":{},\"set_cookies\":{},\"body\":null}}"
 	if string(body) != want {
 		t.Fatalf("MarshalForCloudWatch() = %s, want %s", body, want)
+	}
+}
+
+func TestMarshalIncludesAWSMetadata(t *testing.T) {
+	t.Parallel()
+
+	entry := NewEntry(
+		"cwproxy",
+		Request{
+			Method: http.MethodGet,
+			Path:   "/health",
+		},
+		Response{
+			Status: http.StatusOK,
+		},
+		time.Millisecond,
+	)
+	entry.Metadata = &metadata.Snapshot{
+		EC2: &metadata.EC2{
+			InstanceID: "i-123",
+			Region:     "ap-northeast-2",
+		},
+		EKS: &metadata.EKS{
+			ClusterName: "demo-eks",
+			PodName:     "cwproxy-123",
+		},
+	}
+
+	body, err := Marshal(entry)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+
+	want := `{"_q":"cwproxy GET /health 200 1.000ms","app_name":"cwproxy","aws_meta":{"ec2":{"instance_id":"i-123","region":"ap-northeast-2"},"eks":{"cluster_name":"demo-eks","pod_name":"cwproxy-123"}},"delay":1.000,"request":{"time":0,"host":"","port":0,"path":"/health","method":"GET","url":"","queries":{},"cookies":{},"headers":{},"body":null},"response":{"time":0,"status":200,"headers":{},"set_cookies":{},"body":null}}`
+	if string(body) != want {
+		t.Fatalf("Marshal() = %s, want %s", body, want)
 	}
 }

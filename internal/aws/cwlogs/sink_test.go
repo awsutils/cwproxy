@@ -3,6 +3,7 @@ package cwlogs
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/awsutils/cwproxy/internal/logging"
+	"github.com/awsutils/cwproxy/internal/metadata"
 	"github.com/awsutils/cwproxy/internal/metrics"
 )
 
@@ -310,6 +312,86 @@ func TestSinkPublishEmitsMetricOnlyEMFEvent(t *testing.T) {
 	}
 	if got := envelope.CloudWatchMetrics[0].Dimensions; len(got) != 1 || strings.Join(got[0], ",") != "AppName,Endpoint" {
 		t.Fatalf("health dimensions = %#v", got)
+	}
+}
+
+func TestSinkLogHealthWithMetricsEmbedsResponseBody(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeLogsClient{}
+	sink, err := New(context.Background(), client, "/app/log/cwproxy/health", Options{
+		AppName:               "cwproxy",
+		HealthMetricNamespace: "app/health",
+		StreamName:            "stream-1",
+		FlushInterval:         10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	entry := logging.NewEntry(
+		"cwproxy",
+		logging.Request{
+			Method: http.MethodGet,
+			Path:   "/health",
+			URL:    "http://127.0.0.1:8080/health",
+		},
+		logging.Response{
+			Status: 200,
+			Body:   map[string]any{"status": "ok"},
+		},
+		time.Millisecond,
+	)
+	entry.Metadata = &metadata.Snapshot{
+		ECS: &metadata.ECS{
+			Cluster:       "demo-cluster",
+			ContainerName: "cwproxy",
+		},
+	}
+
+	err = sink.LogHealthWithMetrics(context.Background(), entry, []metrics.Datum{
+		{
+			Name:  "HealthStatus",
+			Value: 1,
+			Unit:  metrics.UnitCount,
+			Dimensions: map[string]string{
+				"AppName":  "cwproxy",
+				"Endpoint": "http://127.0.0.1:8080/health",
+			},
+		},
+		{
+			Name:  "HealthLatency",
+			Value: 2.5,
+			Unit:  metrics.UnitMilliseconds,
+			Dimensions: map[string]string{
+				"AppName":  "cwproxy",
+				"Endpoint": "http://127.0.0.1:8080/health",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("LogHealthWithMetrics returned error: %v", err)
+	}
+	if err := sink.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	if len(client.inputs) != 1 || len(client.inputs[0].LogEvents) != 1 {
+		t.Fatalf("PutLogEvents inputs = %#v", client.inputs)
+	}
+
+	message := *client.inputs[0].LogEvents[0].Message
+	if !strings.Contains(message, "\"response\":{\"time\":0,\"status\":200") {
+		t.Fatalf("response section missing from health log event: %q", message)
+	}
+	if !strings.Contains(message, "\"body\":{\"status\":\"ok\"}") {
+		t.Fatalf("response body missing from health log event: %q", message)
+	}
+	if !strings.Contains(message, "\"aws_meta\":{\"ecs\":{\"cluster\":\"demo-cluster\",\"container_name\":\"cwproxy\"}}") {
+		t.Fatalf("metadata missing from health log event: %q", message)
+	}
+	if !strings.Contains(message, "\"_aws\"") {
+		t.Fatalf("EMF envelope missing from health log event: %q", message)
 	}
 }
 

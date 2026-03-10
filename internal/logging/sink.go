@@ -19,6 +19,11 @@ type MetricSink interface {
 	LogWithMetrics(context.Context, Entry, []metrics.Datum) error
 }
 
+type HealthMetricSink interface {
+	Sink
+	LogHealthWithMetrics(context.Context, Entry, []metrics.Datum) error
+}
+
 type StdoutSink struct {
 	mu sync.Mutex
 	w  io.Writer
@@ -77,6 +82,18 @@ func (s *MultiSink) LogWithMetrics(ctx context.Context, entry Entry, data []metr
 	for _, sink := range s.sinks {
 		if metricSink, ok := sink.(MetricSink); ok {
 			combined = errors.Join(combined, metricSink.LogWithMetrics(ctx, entry, data))
+			continue
+		}
+		combined = errors.Join(combined, sink.Log(ctx, entry))
+	}
+	return combined
+}
+
+func (s *MultiSink) LogHealthWithMetrics(ctx context.Context, entry Entry, data []metrics.Datum) error {
+	var combined error
+	for _, sink := range s.sinks {
+		if metricSink, ok := sink.(HealthMetricSink); ok {
+			combined = errors.Join(combined, metricSink.LogHealthWithMetrics(ctx, entry, data))
 			continue
 		}
 		combined = errors.Join(combined, sink.Log(ctx, entry))

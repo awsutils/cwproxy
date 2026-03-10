@@ -16,11 +16,13 @@ import (
 	"time"
 
 	"github.com/awsutils/cwproxy/internal/logging"
+	"github.com/awsutils/cwproxy/internal/metadata"
 	"github.com/awsutils/cwproxy/internal/metrics"
 )
 
 type Options struct {
 	AppName         string
+	Metadata        *metadata.Snapshot
 	MaxCaptureBytes int
 	Reporter        func(string, ...any)
 	Now             func() time.Time
@@ -29,6 +31,7 @@ type Options struct {
 
 type Handler struct {
 	appName         string
+	metadata        *metadata.Snapshot
 	targetURL       *url.URL
 	sink            logging.Sink
 	publisher       metrics.Publisher
@@ -79,6 +82,7 @@ func New(targetURL *url.URL, sink logging.Sink, publisher metrics.Publisher, opt
 
 	handler := &Handler{
 		appName:         options.AppName,
+		metadata:        options.Metadata,
 		targetURL:       cloneURL(targetURL),
 		sink:            sink,
 		publisher:       publisher,
@@ -206,6 +210,7 @@ func (h *Handler) finalize(request *http.Request, recorder *responseRecorder, st
 		},
 		end.Sub(state.start),
 	)
+	entry.Metadata = h.metadata
 
 	responseSize := recorder.BytesWritten()
 	if state.responseCapture != nil {

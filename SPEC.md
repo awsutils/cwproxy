@@ -2,6 +2,8 @@
 
 `cwproxy` is an HTTP reverse proxy written in Go. It forwards traffic to a local application, writes structured access logs to stdout and CloudWatch Logs, and emits CloudWatch metrics through Embedded Metric Format (EMF).
 
+When available, logs must include auto-detected AWS runtime metadata for EC2, ECS, and EKS.
+
 The application must be fail-safe, robust, performance-optimized, and efficient by default. Every component should handle errors defensively, avoid process crashes whenever recovery is possible, and continue operating safely under unexpected conditions.
 
 Use current, well-supported Go and infrastructure technologies where they provide clear operational value. Prefer designs that reduce latency, CPU usage, memory usage, and overall resource consumption without weakening reliability.
@@ -71,6 +73,7 @@ Logs are emitted after each request/response pair is matched.
 - CloudWatch request log entries use the same JSON payload, but insert a newline immediately after `_q` to improve readability in the CloudWatch console.
 - CloudWatch traffic log entries may also include EMF metric fields and an `_aws` envelope in the same event.
 - Health EMF events are written to `HEALTH_LOG_GROUP_NAME`, not `LOG_GROUP_NAME`.
+- Health log entries must include the health probe response body when one is available.
 
 Example stdout log entry:
 
@@ -78,6 +81,21 @@ Example stdout log entry:
 {
   "_q": "{APP_NAME} {method} {path} {status} {delay}ms",
   "app_name": "{APP_NAME}",
+  "aws_meta": {
+    "ec2": {
+      "instance_id": "i-1234567890",
+      "region": "ap-northeast-2"
+    },
+    "ecs": {
+      "cluster": "demo-cluster",
+      "task_arn": "arn:aws:ecs:region:account:task/123"
+    },
+    "eks": {
+      "cluster_name": "demo-eks",
+      "namespace": "default",
+      "pod_name": "cwproxy-123"
+    }
+  },
   "delay": 123.456,
   "request": {
     "time": 1700000000000,
@@ -108,6 +126,7 @@ Example stdout log entry:
 - `request.time` and `response.time`: Unix timestamps in milliseconds
 - `body`: parsed as an object when `Content-Type` is `application/json` or `application/x-www-form-urlencoded`; otherwise stored as a raw string
 - Truncated request or response bodies must be marked with `...(truncated)` instead of causing unbounded memory growth
+- `aws_meta`: optional AWS runtime metadata with any detected EC2, ECS, and EKS details
 
 ---
 
@@ -152,7 +171,8 @@ Rules:
 Rules:
 
 - `HealthStatus` and `HealthLatency` must always use the `{AppName, Endpoint}` dimension set.
-- Health metrics are emitted as EMF metric-only CloudWatch Logs events.
+- Health logs must include request details, response details, and the response body when available.
+- Health logs and health metrics should be emitted together in the same CloudWatch Logs event when possible.
 
 ---
 

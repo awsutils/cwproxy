@@ -1,0 +1,201 @@
+package metadata
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
+)
+
+type fakeIMDSClient struct {
+	output *imds.GetInstanceIdentityDocumentOutput
+	err    error
+}
+
+func (f fakeIMDSClient) GetInstanceIdentityDocument(context.Context, *imds.GetInstanceIdentityDocumentInput, ...func(*imds.Options)) (*imds.GetInstanceIdentityDocumentOutput, error) {
+	return f.output, f.err
+}
+
+func TestLoadReturnsECSMetadata(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/":
+			_, _ = writer.Write([]byte(`{"Name":"cwproxy","ContainerARN":"arn:aws:ecs:container/123"}`))
+		case "/task":
+			_, _ = writer.Write([]byte(`{"Cluster":"demo-cluster","TaskARN":"arn:aws:ecs:task/abc","Family":"cwproxy","Revision":"12","LaunchType":"FARGATE","AvailabilityZone":"ap-northeast-2a"}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	snapshot := Load(context.Background(), Options{
+		LookupEnv: func(key string) (string, bool) {
+			if key == "ECS_CONTAINER_METADATA_URI_V4" {
+				return server.URL, true
+			}
+			return "", false
+		},
+		ReadFile: func(string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		},
+		HTTPClient: server.Client(),
+		IMDSClient: fakeIMDSClient{err: errors.New("not on ec2")},
+	})
+	if snapshot == nil || snapshot.ECS == nil {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+
+	if snapshot.ECS.Cluster != "demo-cluster" {
+		t.Fatalf("Cluster = %q", snapshot.ECS.Cluster)
+	}
+	if snapshot.ECS.TaskARN != "arn:aws:ecs:task/abc" {
+		t.Fatalf("TaskARN = %q", snapshot.ECS.TaskARN)
+	}
+	if snapshot.ECS.ContainerName != "cwproxy" {
+		t.Fatalf("ContainerName = %q", snapshot.ECS.ContainerName)
+	}
+	if snapshot.ECS.LaunchType != "FARGATE" {
+		t.Fatalf("LaunchType = %q", snapshot.ECS.LaunchType)
+	}
+}
+
+func TestLoadReturnsEKSMetadata(t *testing.T) {
+	t.Parallel()
+
+	token := encodeToken(t, map[string]any{
+		"kubernetes.io": map[string]any{
+			"namespace": "default",
+			"pod": map[string]any{
+				"name": "cwproxy-pod",
+				"uid":  "pod-uid",
+			},
+			"serviceaccount": map[string]any{
+				"name": "cwproxy-service-account",
+				"uid":  "sa-uid",
+			},
+		},
+	})
+
+	snapshot := Load(context.Background(), Options{
+		LookupEnv: func(key string) (string, bool) {
+			switch key {
+			case "KUBERNETES_SERVICE_HOST":
+				return "10.0.0.1", true
+			case "EKS_CLUSTER_NAME":
+				return "demo-eks", true
+			case "NODE_NAME":
+				return "ip-10-0-0-12", true
+			case "AWS_EXECUTION_ENV":
+				return "AWS_EKS_FARGATE", true
+			default:
+				return "", false
+			}
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			switch path {
+			case namespaceFilePath:
+				return []byte("default"), nil
+			case serviceAccountToken:
+				return []byte(token), nil
+			default:
+				return nil, os.ErrNotExist
+			}
+		},
+		IMDSClient: fakeIMDSClient{err: errors.New("not on ec2")},
+	})
+	if snapshot == nil || snapshot.EKS == nil {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+
+	if snapshot.EKS.ClusterName != "demo-eks" {
+		t.Fatalf("ClusterName = %q", snapshot.EKS.ClusterName)
+	}
+	if snapshot.EKS.Namespace != "default" {
+		t.Fatalf("Namespace = %q", snapshot.EKS.Namespace)
+	}
+	if snapshot.EKS.PodName != "cwproxy-pod" {
+		t.Fatalf("PodName = %q", snapshot.EKS.PodName)
+	}
+	if snapshot.EKS.ServiceAccount != "cwproxy-service-account" {
+		t.Fatalf("ServiceAccount = %q", snapshot.EKS.ServiceAccount)
+	}
+}
+
+func TestLoadReturnsEC2Metadata(t *testing.T) {
+	t.Parallel()
+
+	snapshot := Load(context.Background(), Options{
+		LookupEnv: func(string) (string, bool) {
+			return "", false
+		},
+		ReadFile: func(string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		},
+		IMDSClient: fakeIMDSClient{
+			output: &imds.GetInstanceIdentityDocumentOutput{
+				InstanceIdentityDocument: imds.InstanceIdentityDocument{
+					InstanceID:       "i-1234567890",
+					InstanceType:     "m7g.large",
+					Region:           "ap-northeast-2",
+					AvailabilityZone: "ap-northeast-2a",
+					ImageID:          "ami-123456",
+					AccountID:        "123456789012",
+				},
+			},
+		},
+	})
+	if snapshot == nil || snapshot.EC2 == nil {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+
+	if snapshot.EC2.InstanceID != "i-1234567890" {
+		t.Fatalf("InstanceID = %q", snapshot.EC2.InstanceID)
+	}
+	if snapshot.EC2.Region != "ap-northeast-2" {
+		t.Fatalf("Region = %q", snapshot.EC2.Region)
+	}
+	if snapshot.EC2.AccountID != "123456789012" {
+		t.Fatalf("AccountID = %q", snapshot.EC2.AccountID)
+	}
+}
+
+func TestLoadReturnsNilWhenNoMetadataIsAvailable(t *testing.T) {
+	t.Parallel()
+
+	snapshot := Load(context.Background(), Options{
+		LookupEnv: func(string) (string, bool) {
+			return "", false
+		},
+		ReadFile: func(string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		},
+		IMDSClient: fakeIMDSClient{err: errors.New("not on ec2")},
+	})
+	if snapshot != nil {
+		t.Fatalf("snapshot = %#v, want nil", snapshot)
+	}
+}
+
+func encodeToken(t *testing.T, claims map[string]any) string {
+	t.Helper()
+
+	body, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	return strings.Join([]string{
+		"header",
+		base64.RawURLEncoding.EncodeToString(body),
+		"signature",
+	}, ".")
+}

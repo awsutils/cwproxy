@@ -2,28 +2,43 @@ package health
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/awsutils/cwproxy/internal/logging"
+	"github.com/awsutils/cwproxy/internal/metadata"
 	"github.com/awsutils/cwproxy/internal/metrics"
 )
 
+const defaultCaptureBytes = 64 << 10
+
 type Options struct {
-	AppName  string
-	Interval time.Duration
-	Client   *http.Client
-	Reporter func(string, ...any)
+	AppName         string
+	Metadata        *metadata.Snapshot
+	Interval        time.Duration
+	Client          *http.Client
+	Sink            logging.Sink
+	MaxCaptureBytes int
+	Now             func() time.Time
+	Reporter        func(string, ...any)
 }
 
 type Runner struct {
-	endpoints []*url.URL
-	appName   string
-	publisher metrics.Publisher
-	interval  time.Duration
-	client    *http.Client
-	reporter  func(string, ...any)
+	endpoints       []*url.URL
+	appName         string
+	metadata        *metadata.Snapshot
+	publisher       metrics.Publisher
+	interval        time.Duration
+	client          *http.Client
+	sink            logging.Sink
+	now             func() time.Time
+	maxCaptureBytes int
+	reporter        func(string, ...any)
 }
 
 func NewRunner(endpoints []*url.URL, publisher metrics.Publisher, options Options) *Runner {
@@ -31,19 +46,34 @@ func NewRunner(endpoints []*url.URL, publisher metrics.Publisher, options Option
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
+	if publisher == nil {
+		publisher = metrics.NopPublisher{}
+	}
 
 	client := options.Client
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
+	maxCaptureBytes := options.MaxCaptureBytes
+	if maxCaptureBytes <= 0 {
+		maxCaptureBytes = defaultCaptureBytes
+	}
+	now := options.Now
+	if now == nil {
+		now = time.Now
+	}
 
 	return &Runner{
-		endpoints: append([]*url.URL(nil), endpoints...),
-		appName:   options.AppName,
-		publisher: publisher,
-		interval:  interval,
-		client:    client,
-		reporter:  options.Reporter,
+		endpoints:       append([]*url.URL(nil), endpoints...),
+		appName:         options.AppName,
+		metadata:        options.Metadata,
+		publisher:       publisher,
+		interval:        interval,
+		client:          client,
+		sink:            options.Sink,
+		now:             now,
+		maxCaptureBytes: maxCaptureBytes,
+		reporter:        options.Reporter,
 	}
 }
 
@@ -70,7 +100,7 @@ func (r *Runner) Run(ctx context.Context) {
 }
 
 func (r *Runner) probeAll(ctx context.Context) {
-	if len(r.endpoints) == 0 || r.publisher == nil {
+	if len(r.endpoints) == 0 || (r.publisher == nil && r.sink == nil) {
 		return
 	}
 
@@ -89,10 +119,13 @@ func (r *Runner) probeAll(ctx context.Context) {
 }
 
 func (r *Runner) probeEndpoint(ctx context.Context, endpoint *url.URL) {
-	start := time.Now()
+	start := r.now()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		r.publish(ctx, endpoint.String(), 0, 0)
+		r.emit(ctx, buildHealthEntry(r.appName, r.metadata, endpoint, start, start, logging.Response{
+			Status: 0,
+			Body:   err.Error(),
+		}), 0, 0)
 		if r.reporter != nil {
 			r.reporter("failed to build health request for %s: %v", endpoint.String(), err)
 		}
@@ -101,24 +134,46 @@ func (r *Runner) probeEndpoint(ctx context.Context, endpoint *url.URL) {
 
 	response, err := r.client.Do(request)
 	if err != nil {
-		r.publish(ctx, endpoint.String(), 0, float64(time.Since(start))/float64(time.Millisecond))
+		end := r.now()
+		r.emit(ctx, buildHealthEntry(r.appName, r.metadata, endpoint, start, end, logging.Response{
+			Status: 0,
+			Body:   err.Error(),
+		}), 0, float64(end.Sub(start))/float64(time.Millisecond))
 		if r.reporter != nil {
 			r.reporter("health check failed for %s: %v", endpoint.String(), err)
 		}
 		return
 	}
-	defer response.Body.Close()
+
+	end := r.now()
+	body, truncated, readErr := readBody(response.Body, r.maxCaptureBytes)
+	_ = response.Body.Close()
+	if readErr != nil && r.reporter != nil {
+		r.reporter("failed to read health response body for %s: %v", endpoint.String(), readErr)
+	}
 
 	status := 0.0
 	if response.StatusCode >= 200 && response.StatusCode < 400 {
 		status = 1
 	}
 
-	r.publish(ctx, endpoint.String(), status, float64(time.Since(start))/float64(time.Millisecond))
+	responseBody := logging.ParseBody(response.Header.Get("Content-Type"), body, truncated)
+	if responseBody == nil && readErr != nil {
+		responseBody = readErr.Error()
+	}
+
+	entry := buildHealthEntry(r.appName, r.metadata, endpoint, start, end, logging.Response{
+		Status:     response.StatusCode,
+		Headers:    logging.NormalizeHeaders(response.Header),
+		SetCookies: logging.NormalizeCookies(response.Cookies()),
+		Body:       responseBody,
+	})
+	r.emit(ctx, entry, status, float64(end.Sub(start))/float64(time.Millisecond))
 }
 
-func (r *Runner) publish(ctx context.Context, endpoint string, status, latency float64) {
-	err := r.publisher.Publish(ctx, []metrics.Datum{
+func (r *Runner) emit(ctx context.Context, entry logging.Entry, status, latency float64) {
+	endpoint := entry.Request.URL
+	data := []metrics.Datum{
 		{
 			Name:  "HealthStatus",
 			Value: status,
@@ -137,8 +192,86 @@ func (r *Runner) publish(ctx context.Context, endpoint string, status, latency f
 				"Endpoint": endpoint,
 			},
 		},
-	})
-	if err != nil && r.reporter != nil {
+	}
+
+	if healthMetricSink, ok := r.sink.(logging.HealthMetricSink); ok {
+		if err := healthMetricSink.LogHealthWithMetrics(ctx, entry, data); err != nil && r.reporter != nil {
+			r.reporter("failed to write health log entry: %v", err)
+		}
+		return
+	}
+
+	if r.sink != nil {
+		if err := r.sink.Log(ctx, entry); err != nil && r.reporter != nil {
+			r.reporter("failed to write health log entry: %v", err)
+		}
+	}
+	if err := r.publisher.Publish(ctx, data); err != nil && r.reporter != nil {
 		r.reporter("failed to publish health metrics for %s: %v", endpoint, err)
 	}
+}
+
+func buildHealthEntry(appName string, metadata *metadata.Snapshot, endpoint *url.URL, start, end time.Time, response logging.Response) logging.Entry {
+	host := endpoint.Hostname()
+	port := defaultPort(endpoint)
+	path := endpoint.Path
+	if path == "" {
+		path = "/"
+	}
+
+	entry := logging.NewEntry(
+		appName,
+		logging.Request{
+			Time:    start.UnixMilli(),
+			Host:    host,
+			Port:    port,
+			Path:    path,
+			Method:  http.MethodGet,
+			URL:     endpoint.String(),
+			Queries: logging.NormalizeValues(endpoint.Query()),
+		},
+		logging.Response{
+			Time:       end.UnixMilli(),
+			Status:     response.Status,
+			Headers:    response.Headers,
+			SetCookies: response.SetCookies,
+			Body:       response.Body,
+		},
+		end.Sub(start),
+	)
+	entry.Metadata = metadata
+	return entry
+}
+
+func readBody(body io.ReadCloser, maxCaptureBytes int) ([]byte, bool, error) {
+	if body == nil {
+		return nil, false, nil
+	}
+
+	if maxCaptureBytes <= 0 {
+		maxCaptureBytes = defaultCaptureBytes
+	}
+
+	limited := io.LimitReader(body, int64(maxCaptureBytes)+1)
+	payload, err := io.ReadAll(limited)
+	if len(payload) > maxCaptureBytes {
+		return payload[:maxCaptureBytes], true, err
+	}
+	return payload, false, err
+}
+
+func defaultPort(endpoint *url.URL) int {
+	if endpoint == nil {
+		return 0
+	}
+	if portText := endpoint.Port(); portText != "" {
+		port, err := strconv.Atoi(portText)
+		if err == nil {
+			return port
+		}
+	}
+	if strings.EqualFold(endpoint.Scheme, "https") {
+		return 443
+	}
+	return 80
 }

@@ -2,6 +2,8 @@
 
 `cwproxy` is a Go HTTP reverse proxy that forwards traffic to a local application, emits structured JSON access logs to stdout and CloudWatch Logs, and publishes CloudWatch Metrics for health, request counts, latency, payload sizes, and status codes through CloudWatch Embedded Metric Format (EMF).
 
+When available, logs also include auto-detected AWS runtime metadata for EC2, ECS, and EKS under `aws_meta`.
+
 The service is designed to be fail-safe and defensive by default:
 
 - bounded request and response body capture
@@ -53,7 +55,7 @@ CloudWatch outputs:
 - Traffic dimensions: `{AppName}` and `{AppName, Endpoint, Method}`
 - Health dimensions: `{AppName, Endpoint}`
 - Request logs and request metrics are emitted together in the same CloudWatch Logs event via EMF
-- Health metrics are emitted as EMF events in the health log group
+- Health logs include the probe response body and health metrics in the same health log group event via EMF
 
 ## Local Run
 

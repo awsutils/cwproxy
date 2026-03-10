@@ -17,6 +17,7 @@ var (
 		"_aws":     {},
 		"_q":       {},
 		"app_name": {},
+		"aws_meta": {},
 		"delay":    {},
 		"request":  {},
 		"response": {},
@@ -25,6 +26,7 @@ var (
 		"_aws":     {},
 		"_q":       {},
 		"app_name": {},
+		"aws_meta": {},
 	}
 )
 

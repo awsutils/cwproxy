@@ -124,35 +124,11 @@ func (s *Sink) Log(ctx context.Context, entry logging.Entry) error {
 }
 
 func (s *Sink) LogWithMetrics(ctx context.Context, entry logging.Entry, data []metrics.Datum) error {
-	if len(data) == 0 || s.trafficMetricNamespace == "" {
-		return s.Log(ctx, entry)
-	}
+	return s.logWithMetrics(ctx, entry, data, s.trafficMetricNamespace)
+}
 
-	batches, err := partitionDatums(data, reservedLogRootKeys)
-	if err != nil {
-		return err
-	}
-	if len(batches) == 0 {
-		return s.Log(ctx, entry)
-	}
-
-	timestamp := entryTimestamp(entry)
-	message, err := marshalLogWithMetrics(entry, s.trafficMetricNamespace, batches[0])
-	if err != nil {
-		return err
-	}
-	combined := s.enqueueMessage(ctx, message, timestamp)
-
-	for _, batch := range batches[1:] {
-		metricMessage, err := marshalMetricEvent(s.appName, s.trafficMetricNamespace, timestamp, batch)
-		if err != nil {
-			combined = errors.Join(combined, err)
-			continue
-		}
-		combined = errors.Join(combined, s.enqueueMessage(ctx, metricMessage, timestamp))
-	}
-
-	return combined
+func (s *Sink) LogHealthWithMetrics(ctx context.Context, entry logging.Entry, data []metrics.Datum) error {
+	return s.logWithMetrics(ctx, entry, data, s.healthMetricNamespace)
 }
 
 func (s *Sink) Publish(ctx context.Context, data []metrics.Datum) error {
@@ -178,6 +154,38 @@ func (s *Sink) Publish(ctx context.Context, data []metrics.Datum) error {
 		}
 		combined = errors.Join(combined, s.enqueueMessage(ctx, message, timestamp))
 	}
+	return combined
+}
+
+func (s *Sink) logWithMetrics(ctx context.Context, entry logging.Entry, data []metrics.Datum, namespace string) error {
+	if len(data) == 0 || namespace == "" {
+		return s.Log(ctx, entry)
+	}
+
+	batches, err := partitionDatums(data, reservedLogRootKeys)
+	if err != nil {
+		return err
+	}
+	if len(batches) == 0 {
+		return s.Log(ctx, entry)
+	}
+
+	timestamp := entryTimestamp(entry)
+	message, err := marshalLogWithMetrics(entry, namespace, batches[0])
+	if err != nil {
+		return err
+	}
+	combined := s.enqueueMessage(ctx, message, timestamp)
+
+	for _, batch := range batches[1:] {
+		metricMessage, err := marshalMetricEvent(s.appName, namespace, timestamp, batch)
+		if err != nil {
+			combined = errors.Join(combined, err)
+			continue
+		}
+		combined = errors.Join(combined, s.enqueueMessage(ctx, metricMessage, timestamp))
+	}
+
 	return combined
 }
 

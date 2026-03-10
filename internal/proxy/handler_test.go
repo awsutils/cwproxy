@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/awsutils/cwproxy/internal/logging"
+	"github.com/awsutils/cwproxy/internal/metadata"
 	"github.com/awsutils/cwproxy/internal/metrics"
 )
 
@@ -102,6 +103,7 @@ func TestHandlerCapturesExchangeAndPublishesMetrics(t *testing.T) {
 	publisher := &metricCapture{}
 	handler := New(targetURL, sink, publisher, Options{
 		AppName:         "cwproxy",
+		Metadata:        &metadata.Snapshot{ECS: &metadata.ECS{Cluster: "demo-cluster"}},
 		MaxCaptureBytes: 4096,
 	})
 
@@ -125,6 +127,9 @@ func TestHandlerCapturesExchangeAndPublishesMetrics(t *testing.T) {
 	entry := sink.entries[0]
 	if entry.Request.Host != "example.com" {
 		t.Fatalf("request host = %q", entry.Request.Host)
+	}
+	if entry.Metadata == nil || entry.Metadata.ECS == nil || entry.Metadata.ECS.Cluster != "demo-cluster" {
+		t.Fatalf("metadata = %#v", entry.Metadata)
 	}
 	if entry.Request.Port != 80 {
 		t.Fatalf("request port = %d, want 80", entry.Request.Port)
