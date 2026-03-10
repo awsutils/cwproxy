@@ -13,6 +13,7 @@ import (
 	cloudwatchlogstypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/aws/smithy-go"
 	"github.com/awsutils/cwproxy/internal/logging"
+	"github.com/awsutils/cwproxy/internal/metrics"
 )
 
 type Client interface {
@@ -22,30 +23,34 @@ type Client interface {
 }
 
 type Options struct {
-	StreamName    string
-	QueueSize     int
-	FlushInterval time.Duration
-	MaxBatchSize  int
-	MaxBatchBytes int
-	MaxEventBytes int
-	Reporter      func(string, ...any)
+	AppName         string
+	MetricNamespace string
+	StreamName      string
+	QueueSize       int
+	FlushInterval   time.Duration
+	MaxBatchSize    int
+	MaxBatchBytes   int
+	MaxEventBytes   int
+	Reporter        func(string, ...any)
 }
 
 type Sink struct {
-	client        Client
-	logGroupName  string
-	logStreamName string
-	queue         chan enqueuedEvent
-	flushInterval time.Duration
-	maxBatchSize  int
-	maxBatchBytes int
-	maxEventBytes int
-	reporter      func(string, ...any)
-	stop          chan struct{}
-	done          chan struct{}
-	closed        atomic.Bool
-	dropped       atomic.Uint64
-	once          sync.Once
+	client          Client
+	appName         string
+	logGroupName    string
+	logStreamName   string
+	metricNamespace string
+	queue           chan enqueuedEvent
+	flushInterval   time.Duration
+	maxBatchSize    int
+	maxBatchBytes   int
+	maxEventBytes   int
+	reporter        func(string, ...any)
+	stop            chan struct{}
+	done            chan struct{}
+	closed          atomic.Bool
+	dropped         atomic.Uint64
+	once            sync.Once
 }
 
 type enqueuedEvent struct {
@@ -84,17 +89,19 @@ func New(ctx context.Context, client Client, logGroupName string, options Option
 	}
 
 	sink := &Sink{
-		client:        client,
-		logGroupName:  logGroupName,
-		logStreamName: options.StreamName,
-		queue:         make(chan enqueuedEvent, options.QueueSize),
-		flushInterval: options.FlushInterval,
-		maxBatchSize:  options.MaxBatchSize,
-		maxBatchBytes: options.MaxBatchBytes,
-		maxEventBytes: options.MaxEventBytes,
-		reporter:      options.Reporter,
-		stop:          make(chan struct{}),
-		done:          make(chan struct{}),
+		client:          client,
+		appName:         options.AppName,
+		logGroupName:    logGroupName,
+		logStreamName:   options.StreamName,
+		metricNamespace: options.MetricNamespace,
+		queue:           make(chan enqueuedEvent, options.QueueSize),
+		flushInterval:   options.FlushInterval,
+		maxBatchSize:    options.MaxBatchSize,
+		maxBatchBytes:   options.MaxBatchBytes,
+		maxEventBytes:   options.MaxEventBytes,
+		reporter:        options.Reporter,
+		stop:            make(chan struct{}),
+		done:            make(chan struct{}),
 	}
 
 	go sink.run()
@@ -110,32 +117,65 @@ func (s *Sink) Log(ctx context.Context, entry logging.Entry) error {
 	if err != nil {
 		return err
 	}
-	if len(message) > s.maxEventBytes {
-		s.noteDrop()
-		if s.reporter != nil {
-			s.reporter("dropping oversized CloudWatch log event (%d bytes)", len(message))
+	return s.enqueueMessage(ctx, message, entryTimestamp(entry))
+}
+
+func (s *Sink) LogWithMetrics(ctx context.Context, entry logging.Entry, data []metrics.Datum) error {
+	if len(data) == 0 || s.metricNamespace == "" {
+		return s.Log(ctx, entry)
+	}
+
+	batches, err := partitionDatums(data, reservedLogRootKeys)
+	if err != nil {
+		return err
+	}
+	if len(batches) == 0 {
+		return s.Log(ctx, entry)
+	}
+
+	timestamp := entryTimestamp(entry)
+	message, err := marshalLogWithMetrics(entry, s.metricNamespace, batches[0])
+	if err != nil {
+		return err
+	}
+	combined := s.enqueueMessage(ctx, message, timestamp)
+
+	for _, batch := range batches[1:] {
+		metricMessage, err := marshalMetricEvent(s.appName, s.metricNamespace, timestamp, batch)
+		if err != nil {
+			combined = errors.Join(combined, err)
+			continue
 		}
-		return errors.New("cloudwatch log event exceeds maximum size")
+		combined = errors.Join(combined, s.enqueueMessage(ctx, metricMessage, timestamp))
 	}
 
-	event := enqueuedEvent{
-		message:   string(message),
-		timestamp: time.Now().UnixMilli(),
-	}
+	return combined
+}
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-
-	select {
-	case s.queue <- event:
+func (s *Sink) Publish(ctx context.Context, data []metrics.Datum) error {
+	if len(data) == 0 {
 		return nil
-	default:
-		s.noteDrop()
-		return errors.New("cloudwatch logs queue is full")
 	}
+	if s.metricNamespace == "" {
+		return errors.New("cloudwatch metric namespace is not configured")
+	}
+
+	batches, err := partitionDatums(data, reservedMetricRootKeys)
+	if err != nil {
+		return err
+	}
+
+	timestamp := time.Now().UnixMilli()
+	var combined error
+	for _, batch := range batches {
+		message, err := marshalMetricEvent(s.appName, s.metricNamespace, timestamp, batch)
+		if err != nil {
+			combined = errors.Join(combined, err)
+			continue
+		}
+		combined = errors.Join(combined, s.enqueueMessage(ctx, message, timestamp))
+	}
+	return combined
 }
 
 func (s *Sink) Close(ctx context.Context) error {
@@ -213,6 +253,35 @@ func (s *Sink) noteDrop() {
 	dropped := s.dropped.Add(1)
 	if s.reporter != nil && dropped%100 == 1 {
 		s.reporter("dropping CloudWatch log events because the queue is full (total dropped: %d)", dropped)
+	}
+}
+
+func (s *Sink) enqueueMessage(ctx context.Context, message []byte, timestamp int64) error {
+	if len(message) > s.maxEventBytes {
+		s.noteDrop()
+		if s.reporter != nil {
+			s.reporter("dropping oversized CloudWatch log event (%d bytes)", len(message))
+		}
+		return errors.New("cloudwatch log event exceeds maximum size")
+	}
+
+	event := enqueuedEvent{
+		message:   string(message),
+		timestamp: timestamp,
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	select {
+	case s.queue <- event:
+		return nil
+	default:
+		s.noteDrop()
+		return errors.New("cloudwatch logs queue is full")
 	}
 }
 

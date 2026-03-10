@@ -5,11 +5,18 @@ import (
 	"errors"
 	"io"
 	"sync"
+
+	"github.com/awsutils/cwproxy/internal/metrics"
 )
 
 type Sink interface {
 	Log(context.Context, Entry) error
 	Close(context.Context) error
+}
+
+type MetricSink interface {
+	Sink
+	LogWithMetrics(context.Context, Entry, []metrics.Datum) error
 }
 
 type StdoutSink struct {
@@ -60,6 +67,18 @@ func NewMultiSink(sinks ...Sink) *MultiSink {
 func (s *MultiSink) Log(ctx context.Context, entry Entry) error {
 	var combined error
 	for _, sink := range s.sinks {
+		combined = errors.Join(combined, sink.Log(ctx, entry))
+	}
+	return combined
+}
+
+func (s *MultiSink) LogWithMetrics(ctx context.Context, entry Entry, data []metrics.Datum) error {
+	var combined error
+	for _, sink := range s.sinks {
+		if metricSink, ok := sink.(MetricSink); ok {
+			combined = errors.Join(combined, metricSink.LogWithMetrics(ctx, entry, data))
+			continue
+		}
 		combined = errors.Join(combined, sink.Log(ctx, entry))
 	}
 	return combined

@@ -207,16 +207,23 @@ func (h *Handler) finalize(request *http.Request, recorder *responseRecorder, st
 		end.Sub(state.start),
 	)
 
-	if err := h.sink.Log(context.Background(), entry); err != nil && h.reporter != nil {
-		h.reporter("failed to write log entry: %v", err)
-	}
-
 	responseSize := recorder.BytesWritten()
 	if state.responseCapture != nil {
 		responseSize = state.responseCapture.Total()
 	}
 
-	if err := h.publisher.Publish(context.Background(), buildMetrics(path, status, end.Sub(state.start), state.requestCapture.Total(), responseSize)); err != nil && h.reporter != nil {
+	metricData := buildMetrics(path, status, end.Sub(state.start), state.requestCapture.Total(), responseSize)
+	if metricSink, ok := h.sink.(logging.MetricSink); ok {
+		if err := metricSink.LogWithMetrics(context.Background(), entry, metricData); err != nil && h.reporter != nil {
+			h.reporter("failed to write CloudWatch EMF log entry: %v", err)
+		}
+		return
+	}
+
+	if err := h.sink.Log(context.Background(), entry); err != nil && h.reporter != nil {
+		h.reporter("failed to write log entry: %v", err)
+	}
+	if err := h.publisher.Publish(context.Background(), metricData); err != nil && h.reporter != nil {
 		h.reporter("failed to publish proxy metrics: %v", err)
 	}
 }
@@ -257,7 +264,7 @@ func buildMetrics(path string, status int, latency time.Duration, requestBytes, 
 			Unit:  metrics.UnitCount,
 			Dimensions: map[string]string{
 				"Endpoint":   path,
-				"StatusCode": strconv.Itoa(status),
+				"HTTPStatus": strconv.Itoa(status),
 			},
 		},
 	}

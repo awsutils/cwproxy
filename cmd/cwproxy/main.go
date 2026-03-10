@@ -14,10 +14,8 @@ import (
 	"time"
 
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/awsutils/cwproxy/internal/aws/cwlogs"
-	"github.com/awsutils/cwproxy/internal/aws/cwmetrics"
 	"github.com/awsutils/cwproxy/internal/config"
 	"github.com/awsutils/cwproxy/internal/health"
 	"github.com/awsutils/cwproxy/internal/logging"
@@ -66,24 +64,18 @@ func run() error {
 			logStreamName := sanitizeStreamName(cfg.AppName, time.Now(), os.Getpid())
 
 			cwLogSink, sinkErr := cwlogs.New(rootContext, cloudwatchlogs.NewFromConfig(awsConfig), cfg.LogGroupName, cwlogs.Options{
-				StreamName: logStreamName,
-				Reporter:   reporter.Printf,
+				AppName:         cfg.AppName,
+				MetricNamespace: "sniff2cw/" + cfg.AppName,
+				StreamName:      logStreamName,
+				Reporter:        reporter.Printf,
 			})
 			if sinkErr != nil {
 				reporter.Printf("failed to initialize CloudWatch Logs sink: %v", sinkErr)
 			} else {
 				logSink = logging.NewMultiSink(stdoutSink, cwLogSink)
+				metricPublisher = cwLogSink
 				closers = append(closers, cwLogSink)
 			}
-
-			cloudWatchPublisher := metrics.NewAsyncPublisher(
-				cwmetrics.New(cloudwatch.NewFromConfig(awsConfig), "sniff2cw/"+cfg.AppName),
-				metrics.Options{
-					Reporter: reporter.Printf,
-				},
-			)
-			metricPublisher = cloudWatchPublisher
-			closers = append(closers, cloudWatchPublisher)
 		}
 	}
 

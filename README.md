@@ -1,6 +1,6 @@
 # cwproxy
 
-`cwproxy` is a Go HTTP reverse proxy that forwards traffic to a local application, emits structured JSON access logs to stdout and CloudWatch Logs, and publishes CloudWatch Metrics for health, request counts, latency, payload sizes, and status codes.
+`cwproxy` is a Go HTTP reverse proxy that forwards traffic to a local application, emits structured JSON access logs to stdout and CloudWatch Logs, and publishes CloudWatch Metrics for health, request counts, latency, payload sizes, and status codes through CloudWatch Embedded Metric Format (EMF).
 
 The service is designed to be fail-safe and defensive by default:
 
@@ -41,12 +41,13 @@ Distribution builds:
 | `LOG_GROUP_NAME` | `/app/log/{APP_NAME}` | CloudWatch Logs group name |
 | `AWS_REGION` / `AWS_DEFAULT_REGION` | none | AWS region used to enable CloudWatch delivery |
 
-Important: the current runtime enables CloudWatch Logs and Metrics only when `AWS_REGION` or `AWS_DEFAULT_REGION` is present in the environment. Shared AWS credentials from `~/.aws/credentials` can still be used, but set the region env var explicitly when starting the proxy.
+Important: the current runtime enables CloudWatch Logs and EMF-backed metrics only when `AWS_REGION` or `AWS_DEFAULT_REGION` is present in the environment. Shared AWS credentials from `~/.aws/credentials` can still be used, but set the region env var explicitly when starting the proxy.
 
 CloudWatch outputs:
 
 - Logs group: `LOG_GROUP_NAME`
 - Metrics namespace: `sniff2cw/{APP_NAME}`
+- Request logs and request metrics are emitted together in the same CloudWatch Logs event via EMF
 
 ## Local Run
 

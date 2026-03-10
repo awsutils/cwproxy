@@ -5,7 +5,6 @@ go 1.26
 require (
 	github.com/aws/aws-sdk-go-v2 v1.40.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.1
-	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.52.1
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.58.1
 	github.com/aws/smithy-go v1.23.2
 )

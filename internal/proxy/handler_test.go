@@ -31,6 +31,32 @@ func (s *captureSink) Close(context.Context) error {
 	return nil
 }
 
+type captureMetricSink struct {
+	mu      sync.Mutex
+	entries []logging.Entry
+	metrics [][]metrics.Datum
+}
+
+func (s *captureMetricSink) Log(_ context.Context, entry logging.Entry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries = append(s.entries, entry)
+	return nil
+}
+
+func (s *captureMetricSink) LogWithMetrics(_ context.Context, entry logging.Entry, data []metrics.Datum) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries = append(s.entries, entry)
+	copied := append([]metrics.Datum(nil), data...)
+	s.metrics = append(s.metrics, copied)
+	return nil
+}
+
+func (s *captureMetricSink) Close(context.Context) error {
+	return nil
+}
+
 type metricCapture struct {
 	mu   sync.Mutex
 	data []metrics.Datum
@@ -179,5 +205,58 @@ func TestHandlerReturnsBadGatewayAndTracksErrors(t *testing.T) {
 	}
 	if !foundErrorCount {
 		t.Fatal("expected ErrorCount metric")
+	}
+}
+
+func TestHandlerUsesMetricAwareSinkForCombinedEmission(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+
+	targetURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("Parse upstream URL: %v", err)
+	}
+
+	sink := &captureMetricSink{}
+	publisher := &metricCapture{}
+	handler := New(targetURL, sink, publisher, Options{
+		AppName: "cwproxy",
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "http://example.com/combined", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response code = %d, want 200", recorder.Code)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.entries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(sink.entries))
+	}
+	if len(sink.metrics) != 1 {
+		t.Fatalf("metric batch count = %d, want 1", len(sink.metrics))
+	}
+	foundStatusMetric := false
+	for _, datum := range sink.metrics[0] {
+		if datum.Name == "StatusCode" && datum.Dimensions["HTTPStatus"] == "200" {
+			foundStatusMetric = true
+		}
+	}
+	if !foundStatusMetric {
+		t.Fatalf("metric batch = %#v", sink.metrics[0])
+	}
+
+	publisher.mu.Lock()
+	defer publisher.mu.Unlock()
+	if len(publisher.data) != 0 {
+		t.Fatalf("fallback publisher unexpectedly used: %#v", publisher.data)
 	}
 }
