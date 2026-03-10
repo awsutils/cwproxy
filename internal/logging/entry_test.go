@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"testing"
@@ -39,7 +40,7 @@ func TestMarshalProducesStableJSON(t *testing.T) {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 
-	want := `{"_q":"cwproxy POST /api/foo 200 123ms","app_name":"cwproxy","delay":123,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"}},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"}}}`
+	want := `{"_q":"cwproxy POST /api/foo 200 123.000ms","app_name":"cwproxy","delay":123.000,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"}},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"}}}`
 	if string(got) != want {
 		t.Fatalf("Marshal() = %s, want %s", got, want)
 	}
@@ -101,7 +102,27 @@ func TestNewEntryUsesUnknownMethodFallback(t *testing.T) {
 		time.Millisecond,
 	)
 
-	if entry.Summary != "cwproxy UNKNOWN /health 200 1ms" {
+	if entry.Summary != "cwproxy UNKNOWN /health 200 1.000ms" {
 		t.Fatalf("Summary = %q", entry.Summary)
+	}
+}
+
+func TestDurationFormatsWithThreeDecimals(t *testing.T) {
+	t.Parallel()
+
+	if got := formatDelay(123456 * time.Microsecond).String(); got != "123.456" {
+		t.Fatalf("String() = %q", got)
+	}
+
+	body, err := json.Marshal(struct {
+		Delay Duration `json:"delay"`
+	}{
+		Delay: formatDelay(1500 * time.Microsecond),
+	})
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	if string(body) != `{"delay":1.500}` {
+		t.Fatalf("Marshal() = %s", body)
 	}
 }

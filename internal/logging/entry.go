@@ -3,6 +3,7 @@ package logging
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime"
 	"net/http"
 	"net/url"
@@ -15,10 +16,12 @@ import (
 type Entry struct {
 	Summary  string   `json:"_q"`
 	AppName  string   `json:"app_name"`
-	Delay    int64    `json:"delay"`
+	Delay    Duration `json:"delay"`
 	Request  Request  `json:"request"`
 	Response Response `json:"response"`
 }
+
+type Duration float64
 
 type Request struct {
 	Time    int64          `json:"time"`
@@ -42,10 +45,11 @@ type Response struct {
 }
 
 func NewEntry(appName string, request Request, response Response, delay time.Duration) Entry {
+	delayValue := formatDelay(delay)
 	return Entry{
-		Summary:  buildSummary(appName, request.Method, request.Path, response.Status, delay),
+		Summary:  buildSummary(appName, request.Method, request.Path, response.Status, delayValue),
 		AppName:  appName,
-		Delay:    delay.Milliseconds(),
+		Delay:    delayValue,
 		Request:  ensureRequest(request),
 		Response: ensureResponse(response),
 	}
@@ -132,11 +136,23 @@ func NormalizeCookies(cookies []*http.Cookie) map[string]any {
 	return NormalizeValues(grouped)
 }
 
-func buildSummary(appName, method, path string, status int, delay time.Duration) string {
+func buildSummary(appName, method, path string, status int, delay Duration) string {
 	if method == "" {
 		method = "UNKNOWN"
 	}
-	return strings.TrimSpace(appName + " " + method + " " + path + " " + strconv.Itoa(status) + " " + strconv.FormatInt(delay.Milliseconds(), 10) + "ms")
+	return strings.TrimSpace(appName + " " + method + " " + path + " " + strconv.Itoa(status) + " " + delay.String() + "ms")
+}
+
+func formatDelay(delay time.Duration) Duration {
+	return Duration(float64(delay) / float64(time.Millisecond))
+}
+
+func (d Duration) String() string {
+	return fmt.Sprintf("%.3f", float64(d))
+}
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return []byte(d.String()), nil
 }
 
 func ensureEntry(entry Entry) Entry {
