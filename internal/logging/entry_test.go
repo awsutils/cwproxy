@@ -1,0 +1,93 @@
+package logging
+
+import (
+	"net/http"
+	"net/url"
+	"testing"
+	"time"
+)
+
+func TestMarshalProducesStableJSON(t *testing.T) {
+	t.Parallel()
+
+	entry := NewEntry(
+		"cwproxy",
+		DirectionIngress,
+		Request{
+			Time:    1700000000000,
+			Host:    "example.com",
+			Port:    8080,
+			Path:    "/api/foo",
+			Method:  http.MethodPost,
+			URL:     "example.com:8080/api/foo?key=value",
+			Queries: map[string]any{"key": "value"},
+			Cookies: map[string]any{"session": "abc"},
+			Headers: map[string]any{"Content-Type": "application/json"},
+			Body:    map[string]any{"field": "value"},
+		},
+		Response{
+			Time:       1700000000123,
+			Status:     http.StatusOK,
+			Headers:    map[string]any{"Content-Type": "application/json"},
+			SetCookies: map[string]any{"session": "xyz"},
+			Body:       map[string]any{"result": "ok"},
+		},
+		123*time.Millisecond,
+	)
+
+	got, err := Marshal(entry)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+
+	want := `{"_q":"cwproxy INGRESS /api/foo 200 123ms","app_name":"cwproxy","direction":"INGRESS","delay":123,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"}},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"}}}`
+	if string(got) != want {
+		t.Fatalf("Marshal() = %s, want %s", got, want)
+	}
+}
+
+func TestParseBody(t *testing.T) {
+	t.Parallel()
+
+	form := ParseBody("application/x-www-form-urlencoded", []byte("alpha=1&beta=2"), false)
+	formMap, ok := form.(map[string]any)
+	if !ok {
+		t.Fatalf("form body = %T, want map[string]any", form)
+	}
+	if formMap["alpha"] != "1" || formMap["beta"] != "2" {
+		t.Fatalf("form body = %#v", formMap)
+	}
+
+	jsonBody := ParseBody("application/json", []byte(`{"ok":true}`), false)
+	jsonMap, ok := jsonBody.(map[string]any)
+	if !ok || jsonMap["ok"] != true {
+		t.Fatalf("json body = %#v", jsonBody)
+	}
+
+	truncated := ParseBody("application/json", []byte(`{"partial":`), true)
+	if truncated != `{"partial":...(truncated)` {
+		t.Fatalf("truncated body = %#v", truncated)
+	}
+}
+
+func TestNormalizeHelpers(t *testing.T) {
+	t.Parallel()
+
+	values := NormalizeValues(url.Values{"x": {"1", "2"}, "a": {"b"}})
+	if got, ok := values["a"].(string); !ok || got != "b" {
+		t.Fatalf("NormalizeValues single = %#v", values["a"])
+	}
+
+	headers := NormalizeHeaders(http.Header{
+		"Set-Cookie":   {"a=1"},
+		"Content-Type": {"application/json"},
+	}, "set-cookie")
+	if _, found := headers["Set-Cookie"]; found {
+		t.Fatalf("NormalizeHeaders unexpectedly retained Set-Cookie: %#v", headers)
+	}
+
+	cookies := NormalizeCookies([]*http.Cookie{{Name: "session", Value: "abc"}})
+	if cookies["session"] != "abc" {
+		t.Fatalf("NormalizeCookies = %#v", cookies)
+	}
+}
