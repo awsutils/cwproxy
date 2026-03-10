@@ -79,7 +79,7 @@ Environment variables:
 | --- | --- | --- |
 | `PROXY_PORT` | `8081` | Port that `cwproxy` listens on |
 | `APP_PORT` | `8080` | Local upstream application port |
-| `APP_NAME` | hostname, then `cwproxy` | Application name used in logs and metric dimensions |
+| `APP_NAME` | EKS deployment name, then ECS task family, then hostname, then `cwproxy` | Application name used in logs and metric dimensions |
 | `HEALTH_URLS` | `127.0.0.1:{APP_PORT}/health` | Comma-separated health endpoints |
 | `LOG_GROUP_NAME` | `/app/log/{APP_NAME}` | CloudWatch Logs group for traffic logs and traffic EMF |
 | `HEALTH_LOG_GROUP_NAME` | `/app/log/{APP_NAME}/health` | CloudWatch Logs group for health logs and health EMF |

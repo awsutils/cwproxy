@@ -36,11 +36,6 @@ func main() {
 func run() error {
 	reporter := log.New(os.Stderr, "cwproxy: ", log.LstdFlags|log.Lmsgprefix)
 
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-
 	rootContext, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -49,6 +44,13 @@ func run() error {
 		Reporter: reporter.Printf,
 	})
 	metadataCancel()
+
+	cfg, err := config.LoadFromEnv(os.LookupEnv, func() (string, error) {
+		return resolveDefaultAppName(runtimeMetadata, os.Hostname)
+	})
+	if err != nil {
+		return err
+	}
 
 	stdoutSink := logging.NewStdoutSink(os.Stdout)
 	logSink := logging.Sink(stdoutSink)
@@ -185,6 +187,13 @@ func sanitizeStreamName(appName string, now time.Time, pid int) string {
 		name = "cwproxy"
 	}
 	return fmt.Sprintf("%s-%d-%d", name, pid, now.Unix())
+}
+
+func resolveDefaultAppName(snapshot *metadata.Snapshot, hostname func() (string, error)) (string, error) {
+	if name := metadata.InferDefaultAppName(snapshot); name != "" {
+		return name, nil
+	}
+	return hostname()
 }
 
 func resolveAWSRegion(snapshot *metadata.Snapshot) (string, string) {

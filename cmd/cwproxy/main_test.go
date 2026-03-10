@@ -55,3 +55,46 @@ func TestResolveAWSRegion(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveDefaultAppName(t *testing.T) {
+	t.Run("uses eks deployment name first", func(t *testing.T) {
+		name, err := resolveDefaultAppName(&metadata.Snapshot{
+			EKS: &metadata.EKS{DeploymentName: "orders-api"},
+			ECS: &metadata.ECS{TaskFamily: "orders-task"},
+		}, func() (string, error) {
+			return "host-name", nil
+		})
+		if err != nil {
+			t.Fatalf("resolveDefaultAppName() error = %v", err)
+		}
+		if name != "orders-api" {
+			t.Fatalf("resolveDefaultAppName() = %q, want orders-api", name)
+		}
+	})
+
+	t.Run("uses ecs task family before hostname", func(t *testing.T) {
+		name, err := resolveDefaultAppName(&metadata.Snapshot{
+			ECS: &metadata.ECS{TaskFamily: "orders-task"},
+		}, func() (string, error) {
+			return "host-name", nil
+		})
+		if err != nil {
+			t.Fatalf("resolveDefaultAppName() error = %v", err)
+		}
+		if name != "orders-task" {
+			t.Fatalf("resolveDefaultAppName() = %q, want orders-task", name)
+		}
+	})
+
+	t.Run("falls back to hostname", func(t *testing.T) {
+		name, err := resolveDefaultAppName(nil, func() (string, error) {
+			return "host-name", nil
+		})
+		if err != nil {
+			t.Fatalf("resolveDefaultAppName() error = %v", err)
+		}
+		if name != "host-name" {
+			t.Fatalf("resolveDefaultAppName() = %q, want host-name", name)
+		}
+	})
+}

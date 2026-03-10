@@ -76,7 +76,7 @@ func TestLoadReturnsEKSMetadata(t *testing.T) {
 		"kubernetes.io": map[string]any{
 			"namespace": "default",
 			"pod": map[string]any{
-				"name": "cwproxy-pod",
+				"name": "orders-api-75c8b7d7d6-pxk9m",
 				"uid":  "pod-uid",
 			},
 			"serviceaccount": map[string]any{
@@ -120,10 +120,13 @@ func TestLoadReturnsEKSMetadata(t *testing.T) {
 	if snapshot.EKS.ClusterName != "demo-eks" {
 		t.Fatalf("ClusterName = %q", snapshot.EKS.ClusterName)
 	}
+	if snapshot.EKS.DeploymentName != "orders-api" {
+		t.Fatalf("DeploymentName = %q", snapshot.EKS.DeploymentName)
+	}
 	if snapshot.EKS.Namespace != "default" {
 		t.Fatalf("Namespace = %q", snapshot.EKS.Namespace)
 	}
-	if snapshot.EKS.PodName != "cwproxy-pod" {
+	if snapshot.EKS.PodName != "orders-api-75c8b7d7d6-pxk9m" {
 		t.Fatalf("PodName = %q", snapshot.EKS.PodName)
 	}
 	if snapshot.EKS.ServiceAccount != "cwproxy-service-account" {
@@ -183,6 +186,85 @@ func TestLoadReturnsNilWhenNoMetadataIsAvailable(t *testing.T) {
 	})
 	if snapshot != nil {
 		t.Fatalf("snapshot = %#v, want nil", snapshot)
+	}
+}
+
+func TestInferDefaultAppName(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		snapshot *Snapshot
+		want     string
+	}{
+		{
+			name: "eks deployment wins",
+			snapshot: &Snapshot{
+				EKS: &EKS{DeploymentName: "orders-api"},
+				ECS: &ECS{TaskFamily: "orders-task"},
+			},
+			want: "orders-api",
+		},
+		{
+			name: "ecs task family fallback",
+			snapshot: &Snapshot{
+				ECS: &ECS{TaskFamily: "orders-task"},
+			},
+			want: "orders-task",
+		},
+		{
+			name:     "empty snapshot",
+			snapshot: &Snapshot{},
+			want:     "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := InferDefaultAppName(testCase.snapshot); got != testCase.want {
+				t.Fatalf("InferDefaultAppName() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestInferDeploymentName(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		podName string
+		want    string
+	}{
+		{
+			name:    "deployment pod name",
+			podName: "orders-api-75c8b7d7d6-pxk9m",
+			want:    "orders-api",
+		},
+		{
+			name:    "statefulset pod name does not match",
+			podName: "orders-api-0",
+			want:    "",
+		},
+		{
+			name:    "invalid replica set hash does not match",
+			podName: "orders-api-notahash-pxk9m",
+			want:    "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := inferDeploymentName(testCase.podName); got != testCase.want {
+				t.Fatalf("inferDeploymentName() = %q, want %q", got, testCase.want)
+			}
+		})
 	}
 }
 

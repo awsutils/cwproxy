@@ -49,6 +49,7 @@ type ECS struct {
 
 type EKS struct {
 	ClusterName          string `json:"cluster_name,omitempty"`
+	DeploymentName       string `json:"deployment_name,omitempty"`
 	Namespace            string `json:"namespace,omitempty"`
 	PodName              string `json:"pod_name,omitempty"`
 	PodUID               string `json:"pod_uid,omitempty"`
@@ -248,6 +249,7 @@ func loadEKS(lookupEnv func(string) (string, bool), readFile func(string) ([]byt
 
 	metadata := &EKS{
 		ClusterName:          strings.TrimSpace(clusterName),
+		DeploymentName:       inferDeploymentName(podName),
 		Namespace:            strings.TrimSpace(namespace),
 		PodName:              strings.TrimSpace(podName),
 		NodeName:             strings.TrimSpace(nodeName),
@@ -335,6 +337,23 @@ func isZeroEKS(metadata *EKS) bool {
 	return metadata == nil || *metadata == (EKS{})
 }
 
+func InferDefaultAppName(snapshot *Snapshot) string {
+	if snapshot == nil {
+		return ""
+	}
+	if snapshot.EKS != nil {
+		if name := strings.TrimSpace(snapshot.EKS.DeploymentName); name != "" {
+			return name
+		}
+	}
+	if snapshot.ECS != nil {
+		if name := strings.TrimSpace(snapshot.ECS.TaskFamily); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
 func InferAWSRegion(snapshot *Snapshot) string {
 	if snapshot == nil {
 		return ""
@@ -358,6 +377,29 @@ func InferAWSRegion(snapshot *Snapshot) string {
 	return ""
 }
 
+func inferDeploymentName(podName string) string {
+	podName = strings.TrimSpace(podName)
+	parts := strings.Split(podName, "-")
+	if len(parts) < 3 {
+		return ""
+	}
+
+	podSuffix := parts[len(parts)-1]
+	replicaSetHash := parts[len(parts)-2]
+	if len(podSuffix) != 5 || !isLowerAlphaNumeric(podSuffix) {
+		return ""
+	}
+	if !looksLikeReplicaSetHash(replicaSetHash) {
+		return ""
+	}
+
+	deploymentName := strings.Join(parts[:len(parts)-2], "-")
+	if deploymentName == "" {
+		return ""
+	}
+	return deploymentName
+}
+
 func regionFromARN(value string) string {
 	parts := strings.Split(strings.TrimSpace(value), ":")
 	if len(parts) < 6 || parts[0] != "arn" {
@@ -377,4 +419,31 @@ func regionFromAvailabilityZone(value string) string {
 		return ""
 	}
 	return value[:len(value)-1]
+}
+
+func isLowerAlphaNumeric(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, current := range value {
+		if (current < 'a' || current > 'z') && (current < '0' || current > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func looksLikeReplicaSetHash(value string) bool {
+	if len(value) < 8 || len(value) > 10 || !isLowerAlphaNumeric(value) {
+		return false
+	}
+
+	hasDigit := false
+	for _, current := range value {
+		if current >= '0' && current <= '9' {
+			hasDigit = true
+			break
+		}
+	}
+	return hasDigit
 }

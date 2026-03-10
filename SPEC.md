@@ -21,7 +21,7 @@ Use current, well-supported Go and infrastructure technologies where they provid
 
 ### `APP_NAME`
 
-- Default: system hostname
+- Default: EKS deployment name, then ECS task family, then system hostname
 - Application identifier used in log output and metric dimensions.
 
 ### `APP_PORT`
