@@ -47,8 +47,7 @@ func TestSinkInitializesAndFlushesEvents(t *testing.T) {
 
 	entry := logging.NewEntry(
 		"cwproxy",
-		logging.DirectionIngress,
-		logging.Request{Path: "/health"},
+		logging.Request{Method: "GET", Path: "/health"},
 		logging.Response{Status: 200},
 		time.Millisecond,
 	)

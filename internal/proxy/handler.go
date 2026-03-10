@@ -185,7 +185,6 @@ func (h *Handler) finalize(request *http.Request, recorder *responseRecorder, st
 
 	entry := logging.NewEntry(
 		h.appName,
-		logging.DirectionIngress,
 		logging.Request{
 			Time:    state.start.UnixMilli(),
 			Host:    host,

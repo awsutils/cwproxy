@@ -12,18 +12,12 @@ import (
 	"time"
 )
 
-const (
-	DirectionIngress = "INGRESS"
-	DirectionEgress  = "EGRESS"
-)
-
 type Entry struct {
-	Summary   string   `json:"_q"`
-	AppName   string   `json:"app_name"`
-	Direction string   `json:"direction"`
-	Delay     int64    `json:"delay"`
-	Request   Request  `json:"request"`
-	Response  Response `json:"response"`
+	Summary  string   `json:"_q"`
+	AppName  string   `json:"app_name"`
+	Delay    int64    `json:"delay"`
+	Request  Request  `json:"request"`
+	Response Response `json:"response"`
 }
 
 type Request struct {
@@ -47,14 +41,13 @@ type Response struct {
 	Body       any            `json:"body"`
 }
 
-func NewEntry(appName, direction string, request Request, response Response, delay time.Duration) Entry {
+func NewEntry(appName string, request Request, response Response, delay time.Duration) Entry {
 	return Entry{
-		Summary:   buildSummary(appName, direction, request.Path, response.Status, delay),
-		AppName:   appName,
-		Direction: direction,
-		Delay:     delay.Milliseconds(),
-		Request:   ensureRequest(request),
-		Response:  ensureResponse(response),
+		Summary:  buildSummary(appName, request.Method, request.Path, response.Status, delay),
+		AppName:  appName,
+		Delay:    delay.Milliseconds(),
+		Request:  ensureRequest(request),
+		Response: ensureResponse(response),
 	}
 }
 
@@ -139,8 +132,11 @@ func NormalizeCookies(cookies []*http.Cookie) map[string]any {
 	return NormalizeValues(grouped)
 }
 
-func buildSummary(appName, direction, path string, status int, delay time.Duration) string {
-	return strings.TrimSpace(appName + " " + direction + " " + path + " " + strconv.Itoa(status) + " " + strconv.FormatInt(delay.Milliseconds(), 10) + "ms")
+func buildSummary(appName, method, path string, status int, delay time.Duration) string {
+	if method == "" {
+		method = "UNKNOWN"
+	}
+	return strings.TrimSpace(appName + " " + method + " " + path + " " + strconv.Itoa(status) + " " + strconv.FormatInt(delay.Milliseconds(), 10) + "ms")
 }
 
 func ensureEntry(entry Entry) Entry {

@@ -96,9 +96,6 @@ func TestHandlerCapturesExchangeAndPublishesMetrics(t *testing.T) {
 	}
 
 	entry := sink.entries[0]
-	if entry.Direction != logging.DirectionIngress {
-		t.Fatalf("direction = %q", entry.Direction)
-	}
 	if entry.Request.Host != "example.com" {
 		t.Fatalf("request host = %q", entry.Request.Host)
 	}
@@ -107,6 +104,9 @@ func TestHandlerCapturesExchangeAndPublishesMetrics(t *testing.T) {
 	}
 	if entry.Request.URL != "example.com:80/api/foo?key=value" {
 		t.Fatalf("request url = %q", entry.Request.URL)
+	}
+	if entry.Summary == "" || !strings.Contains(entry.Summary, "POST /api/foo") {
+		t.Fatalf("summary = %q", entry.Summary)
 	}
 	requestBody, ok := entry.Request.Body.(map[string]any)
 	if !ok || requestBody["field"] != "value" {
@@ -164,6 +164,9 @@ func TestHandlerReturnsBadGatewayAndTracksErrors(t *testing.T) {
 	sink.mu.Unlock()
 	if entry.Response.Status != http.StatusBadGateway {
 		t.Fatalf("entry response status = %d", entry.Response.Status)
+	}
+	if entry.Summary == "" || !strings.Contains(entry.Summary, "GET /fail 502") {
+		t.Fatalf("summary = %q", entry.Summary)
 	}
 
 	publisher.mu.Lock()

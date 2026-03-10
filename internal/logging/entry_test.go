@@ -12,7 +12,6 @@ func TestMarshalProducesStableJSON(t *testing.T) {
 
 	entry := NewEntry(
 		"cwproxy",
-		DirectionIngress,
 		Request{
 			Time:    1700000000000,
 			Host:    "example.com",
@@ -40,7 +39,7 @@ func TestMarshalProducesStableJSON(t *testing.T) {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 
-	want := `{"_q":"cwproxy INGRESS /api/foo 200 123ms","app_name":"cwproxy","direction":"INGRESS","delay":123,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"}},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"}}}`
+	want := `{"_q":"cwproxy POST /api/foo 200 123ms","app_name":"cwproxy","delay":123,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"}},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"}}}`
 	if string(got) != want {
 		t.Fatalf("Marshal() = %s, want %s", got, want)
 	}
@@ -89,5 +88,20 @@ func TestNormalizeHelpers(t *testing.T) {
 	cookies := NormalizeCookies([]*http.Cookie{{Name: "session", Value: "abc"}})
 	if cookies["session"] != "abc" {
 		t.Fatalf("NormalizeCookies = %#v", cookies)
+	}
+}
+
+func TestNewEntryUsesUnknownMethodFallback(t *testing.T) {
+	t.Parallel()
+
+	entry := NewEntry(
+		"cwproxy",
+		Request{Path: "/health"},
+		Response{Status: http.StatusOK},
+		time.Millisecond,
+	)
+
+	if entry.Summary != "cwproxy UNKNOWN /health 200 1ms" {
+		t.Fatalf("Summary = %q", entry.Summary)
 	}
 }
