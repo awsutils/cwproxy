@@ -23,34 +23,36 @@ type Client interface {
 }
 
 type Options struct {
-	AppName         string
-	MetricNamespace string
-	StreamName      string
-	QueueSize       int
-	FlushInterval   time.Duration
-	MaxBatchSize    int
-	MaxBatchBytes   int
-	MaxEventBytes   int
-	Reporter        func(string, ...any)
+	AppName                string
+	TrafficMetricNamespace string
+	HealthMetricNamespace  string
+	StreamName             string
+	QueueSize              int
+	FlushInterval          time.Duration
+	MaxBatchSize           int
+	MaxBatchBytes          int
+	MaxEventBytes          int
+	Reporter               func(string, ...any)
 }
 
 type Sink struct {
-	client          Client
-	appName         string
-	logGroupName    string
-	logStreamName   string
-	metricNamespace string
-	queue           chan enqueuedEvent
-	flushInterval   time.Duration
-	maxBatchSize    int
-	maxBatchBytes   int
-	maxEventBytes   int
-	reporter        func(string, ...any)
-	stop            chan struct{}
-	done            chan struct{}
-	closed          atomic.Bool
-	dropped         atomic.Uint64
-	once            sync.Once
+	client                 Client
+	appName                string
+	logGroupName           string
+	logStreamName          string
+	trafficMetricNamespace string
+	healthMetricNamespace  string
+	queue                  chan enqueuedEvent
+	flushInterval          time.Duration
+	maxBatchSize           int
+	maxBatchBytes          int
+	maxEventBytes          int
+	reporter               func(string, ...any)
+	stop                   chan struct{}
+	done                   chan struct{}
+	closed                 atomic.Bool
+	dropped                atomic.Uint64
+	once                   sync.Once
 }
 
 type enqueuedEvent struct {
@@ -89,19 +91,20 @@ func New(ctx context.Context, client Client, logGroupName string, options Option
 	}
 
 	sink := &Sink{
-		client:          client,
-		appName:         options.AppName,
-		logGroupName:    logGroupName,
-		logStreamName:   options.StreamName,
-		metricNamespace: options.MetricNamespace,
-		queue:           make(chan enqueuedEvent, options.QueueSize),
-		flushInterval:   options.FlushInterval,
-		maxBatchSize:    options.MaxBatchSize,
-		maxBatchBytes:   options.MaxBatchBytes,
-		maxEventBytes:   options.MaxEventBytes,
-		reporter:        options.Reporter,
-		stop:            make(chan struct{}),
-		done:            make(chan struct{}),
+		client:                 client,
+		appName:                options.AppName,
+		logGroupName:           logGroupName,
+		logStreamName:          options.StreamName,
+		trafficMetricNamespace: options.TrafficMetricNamespace,
+		healthMetricNamespace:  options.HealthMetricNamespace,
+		queue:                  make(chan enqueuedEvent, options.QueueSize),
+		flushInterval:          options.FlushInterval,
+		maxBatchSize:           options.MaxBatchSize,
+		maxBatchBytes:          options.MaxBatchBytes,
+		maxEventBytes:          options.MaxEventBytes,
+		reporter:               options.Reporter,
+		stop:                   make(chan struct{}),
+		done:                   make(chan struct{}),
 	}
 
 	go sink.run()
@@ -121,7 +124,7 @@ func (s *Sink) Log(ctx context.Context, entry logging.Entry) error {
 }
 
 func (s *Sink) LogWithMetrics(ctx context.Context, entry logging.Entry, data []metrics.Datum) error {
-	if len(data) == 0 || s.metricNamespace == "" {
+	if len(data) == 0 || s.trafficMetricNamespace == "" {
 		return s.Log(ctx, entry)
 	}
 
@@ -134,14 +137,14 @@ func (s *Sink) LogWithMetrics(ctx context.Context, entry logging.Entry, data []m
 	}
 
 	timestamp := entryTimestamp(entry)
-	message, err := marshalLogWithMetrics(entry, s.metricNamespace, batches[0])
+	message, err := marshalLogWithMetrics(entry, s.trafficMetricNamespace, batches[0])
 	if err != nil {
 		return err
 	}
 	combined := s.enqueueMessage(ctx, message, timestamp)
 
 	for _, batch := range batches[1:] {
-		metricMessage, err := marshalMetricEvent(s.appName, s.metricNamespace, timestamp, batch)
+		metricMessage, err := marshalMetricEvent(s.appName, s.trafficMetricNamespace, timestamp, batch)
 		if err != nil {
 			combined = errors.Join(combined, err)
 			continue
@@ -156,8 +159,8 @@ func (s *Sink) Publish(ctx context.Context, data []metrics.Datum) error {
 	if len(data) == 0 {
 		return nil
 	}
-	if s.metricNamespace == "" {
-		return errors.New("cloudwatch metric namespace is not configured")
+	if s.healthMetricNamespace == "" {
+		return errors.New("cloudwatch health metric namespace is not configured")
 	}
 
 	batches, err := partitionDatums(data, reservedMetricRootKeys)
@@ -168,7 +171,7 @@ func (s *Sink) Publish(ctx context.Context, data []metrics.Datum) error {
 	timestamp := time.Now().UnixMilli()
 	var combined error
 	for _, batch := range batches {
-		message, err := marshalMetricEvent(s.appName, s.metricNamespace, timestamp, batch)
+		message, err := marshalMetricEvent(s.appName, s.healthMetricNamespace, timestamp, batch)
 		if err != nil {
 			combined = errors.Join(combined, err)
 			continue

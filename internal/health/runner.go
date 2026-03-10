@@ -11,6 +11,7 @@ import (
 )
 
 type Options struct {
+	AppName  string
 	Interval time.Duration
 	Client   *http.Client
 	Reporter func(string, ...any)
@@ -18,6 +19,7 @@ type Options struct {
 
 type Runner struct {
 	endpoints []*url.URL
+	appName   string
 	publisher metrics.Publisher
 	interval  time.Duration
 	client    *http.Client
@@ -37,6 +39,7 @@ func NewRunner(endpoints []*url.URL, publisher metrics.Publisher, options Option
 
 	return &Runner{
 		endpoints: append([]*url.URL(nil), endpoints...),
+		appName:   options.AppName,
 		publisher: publisher,
 		interval:  interval,
 		client:    client,
@@ -121,6 +124,7 @@ func (r *Runner) publish(ctx context.Context, endpoint string, status, latency f
 			Value: status,
 			Unit:  metrics.UnitCount,
 			Dimensions: map[string]string{
+				"AppName":  r.appName,
 				"Endpoint": endpoint,
 			},
 		},
@@ -129,6 +133,7 @@ func (r *Runner) publish(ctx context.Context, endpoint string, status, latency f
 			Value: latency,
 			Unit:  metrics.UnitMilliseconds,
 			Dimensions: map[string]string{
+				"AppName":  r.appName,
 				"Endpoint": endpoint,
 			},
 		},

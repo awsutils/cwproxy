@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -151,8 +152,28 @@ func TestHandlerCapturesExchangeAndPublishesMetrics(t *testing.T) {
 
 	publisher.mu.Lock()
 	defer publisher.mu.Unlock()
-	if len(publisher.data) != 5 {
-		t.Fatalf("metric count = %d, want 5", len(publisher.data))
+	if len(publisher.data) != 10 {
+		t.Fatalf("metric count = %d, want 10", len(publisher.data))
+	}
+	if !containsMetric(publisher.data, "RequestCount", map[string]string{"AppName": "cwproxy"}) {
+		t.Fatalf("aggregate RequestCount metric missing: %#v", publisher.data)
+	}
+	if !containsMetric(publisher.data, "RequestCount", map[string]string{
+		"AppName":  "cwproxy",
+		"Endpoint": "/api/foo",
+		"Method":   http.MethodPost,
+	}) {
+		t.Fatalf("request-scoped RequestCount metric missing: %#v", publisher.data)
+	}
+	if !containsMetric(publisher.data, "2XXStatusCode", map[string]string{"AppName": "cwproxy"}) {
+		t.Fatalf("aggregate 2XXStatusCode metric missing: %#v", publisher.data)
+	}
+	if !containsMetric(publisher.data, "2XXStatusCode", map[string]string{
+		"AppName":  "cwproxy",
+		"Endpoint": "/api/foo",
+		"Method":   http.MethodPost,
+	}) {
+		t.Fatalf("request-scoped 2XXStatusCode metric missing: %#v", publisher.data)
 	}
 }
 
@@ -197,14 +218,18 @@ func TestHandlerReturnsBadGatewayAndTracksErrors(t *testing.T) {
 
 	publisher.mu.Lock()
 	defer publisher.mu.Unlock()
-	foundErrorCount := false
-	for _, datum := range publisher.data {
-		if datum.Name == "ErrorCount" {
-			foundErrorCount = true
-		}
+	if len(publisher.data) != 10 {
+		t.Fatalf("metric count = %d, want 10", len(publisher.data))
 	}
-	if !foundErrorCount {
-		t.Fatal("expected ErrorCount metric")
+	if !containsMetric(publisher.data, "5XXStatusCode", map[string]string{"AppName": "cwproxy"}) {
+		t.Fatalf("aggregate 5XXStatusCode metric missing: %#v", publisher.data)
+	}
+	if !containsMetric(publisher.data, "5XXStatusCode", map[string]string{
+		"AppName":  "cwproxy",
+		"Endpoint": "/fail",
+		"Method":   http.MethodGet,
+	}) {
+		t.Fatalf("request-scoped 5XXStatusCode metric missing: %#v", publisher.data)
 	}
 }
 
@@ -244,13 +269,17 @@ func TestHandlerUsesMetricAwareSinkForCombinedEmission(t *testing.T) {
 	if len(sink.metrics) != 1 {
 		t.Fatalf("metric batch count = %d, want 1", len(sink.metrics))
 	}
-	foundStatusMetric := false
-	for _, datum := range sink.metrics[0] {
-		if datum.Name == "StatusCode" && datum.Dimensions["HTTPStatus"] == "200" {
-			foundStatusMetric = true
-		}
+	if len(sink.metrics[0]) != 10 {
+		t.Fatalf("metric count = %d, want 10", len(sink.metrics[0]))
 	}
-	if !foundStatusMetric {
+	if !containsMetric(sink.metrics[0], "2XXStatusCode", map[string]string{"AppName": "cwproxy"}) {
+		t.Fatalf("aggregate 2XXStatusCode metric missing: %#v", sink.metrics[0])
+	}
+	if !containsMetric(sink.metrics[0], "2XXStatusCode", map[string]string{
+		"AppName":  "cwproxy",
+		"Endpoint": "/combined",
+		"Method":   http.MethodGet,
+	}) {
 		t.Fatalf("metric batch = %#v", sink.metrics[0])
 	}
 
@@ -259,4 +288,35 @@ func TestHandlerUsesMetricAwareSinkForCombinedEmission(t *testing.T) {
 	if len(publisher.data) != 0 {
 		t.Fatalf("fallback publisher unexpectedly used: %#v", publisher.data)
 	}
+}
+
+func containsMetric(data []metrics.Datum, name string, dimensions map[string]string) bool {
+	for _, datum := range data {
+		if datum.Name != name {
+			continue
+		}
+		if sameDimensions(datum.Dimensions, dimensions) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameDimensions(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	leftKeys := make([]string, 0, len(left))
+	for key := range left {
+		leftKeys = append(leftKeys, key)
+	}
+	slices.Sort(leftKeys)
+
+	for _, key := range leftKeys {
+		if left[key] != right[key] {
+			return false
+		}
+	}
+	return true
 }

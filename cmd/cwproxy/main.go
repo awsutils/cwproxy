@@ -64,10 +64,11 @@ func run() error {
 			logStreamName := sanitizeStreamName(cfg.AppName, time.Now(), os.Getpid())
 
 			cwLogSink, sinkErr := cwlogs.New(rootContext, cloudwatchlogs.NewFromConfig(awsConfig), cfg.LogGroupName, cwlogs.Options{
-				AppName:         cfg.AppName,
-				MetricNamespace: "sniff2cw/" + cfg.AppName,
-				StreamName:      logStreamName,
-				Reporter:        reporter.Printf,
+				AppName:                cfg.AppName,
+				TrafficMetricNamespace: "app/traffic",
+				HealthMetricNamespace:  "app/health",
+				StreamName:             logStreamName,
+				Reporter:               reporter.Printf,
 			})
 			if sinkErr != nil {
 				reporter.Printf("failed to initialize CloudWatch Logs sink: %v", sinkErr)
@@ -95,6 +96,7 @@ func run() error {
 	}
 
 	healthRunner := health.NewRunner(cfg.HealthURLs, metricPublisher, health.Options{
+		AppName:  cfg.AppName,
 		Interval: cfg.HealthInterval,
 		Reporter: reporter.Printf,
 	})

@@ -46,7 +46,10 @@ Important: the current runtime enables CloudWatch Logs and EMF-backed metrics on
 CloudWatch outputs:
 
 - Logs group: `LOG_GROUP_NAME`
-- Metrics namespace: `sniff2cw/{APP_NAME}`
+- Traffic metrics namespace: `app/traffic`
+- Health metrics namespace: `app/health`
+- Traffic dimensions: `{AppName}` and `{AppName, Endpoint, Method}`
+- Health dimensions: `{AppName, Endpoint}`
 - Request logs and request metrics are emitted together in the same CloudWatch Logs event via EMF
 
 ## Local Run

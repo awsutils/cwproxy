@@ -52,8 +52,13 @@ type emfField struct {
 type emfBatchState struct {
 	datums          []metrics.Datum
 	dimensionValues map[string]string
-	metricNames     map[string]struct{}
+	metricValues    map[string]emfMetricSpecValue
 	reservedRoot    map[string]struct{}
+}
+
+type emfMetricSpecValue struct {
+	value float64
+	unit  string
 }
 
 func marshalLogWithMetrics(entry logging.Entry, namespace string, data []metrics.Datum) ([]byte, error) {
@@ -151,7 +156,7 @@ func partitionDatums(data []metrics.Datum, reserved map[string]struct{}) ([][]me
 func newBatchState(reserved map[string]struct{}) *emfBatchState {
 	return &emfBatchState{
 		dimensionValues: make(map[string]string),
-		metricNames:     make(map[string]struct{}),
+		metricValues:    make(map[string]emfMetricSpecValue),
 		reservedRoot:    reserved,
 	}
 }
@@ -160,7 +165,7 @@ func (s *emfBatchState) canAdd(datum metrics.Datum) bool {
 	if datum.Name == "" {
 		return false
 	}
-	if len(s.metricNames) >= 100 {
+	if len(s.metricValues) >= 100 {
 		return false
 	}
 	if _, found := s.reservedRoot[datum.Name]; found {
@@ -169,8 +174,10 @@ func (s *emfBatchState) canAdd(datum metrics.Datum) bool {
 	if _, found := s.dimensionValues[datum.Name]; found {
 		return false
 	}
-	if _, found := s.metricNames[datum.Name]; found {
-		return false
+	if existing, found := s.metricValues[datum.Name]; found {
+		if existing.value != datum.Value || existing.unit != datum.Unit {
+			return false
+		}
 	}
 	if len(datum.Dimensions) > 30 {
 		return false
@@ -183,7 +190,7 @@ func (s *emfBatchState) canAdd(datum metrics.Datum) bool {
 		if _, found := s.reservedRoot[key]; found {
 			return false
 		}
-		if _, found := s.metricNames[key]; found {
+		if _, found := s.metricValues[key]; found {
 			return false
 		}
 		if existing, found := s.dimensionValues[key]; found && existing != value {
@@ -196,7 +203,10 @@ func (s *emfBatchState) canAdd(datum metrics.Datum) bool {
 
 func (s *emfBatchState) add(datum metrics.Datum) {
 	s.datums = append(s.datums, datum)
-	s.metricNames[datum.Name] = struct{}{}
+	s.metricValues[datum.Name] = emfMetricSpecValue{
+		value: datum.Value,
+		unit:  datum.Unit,
+	}
 	for key, value := range datum.Dimensions {
 		s.dimensionValues[key] = value
 	}
@@ -204,11 +214,21 @@ func (s *emfBatchState) add(datum metrics.Datum) {
 
 func buildEMFParts(namespace string, data []metrics.Datum) ([]emfField, []emfDirective, error) {
 	dimensionFields := make(map[string]string)
-	metricFields := make(map[string]float64, len(data))
+	metricFields := make(map[string]emfMetricSpecValue, len(data))
 	grouped := make(map[string]*emfDirective)
+	groupedMetricNames := make(map[string]map[string]struct{})
 
 	for _, datum := range data {
-		metricFields[datum.Name] = datum.Value
+		if existing, found := metricFields[datum.Name]; found {
+			if existing.value != datum.Value || existing.unit != datum.Unit {
+				return nil, nil, fmt.Errorf("metric %q has conflicting values in one EMF event", datum.Name)
+			}
+		} else {
+			metricFields[datum.Name] = emfMetricSpecValue{
+				value: datum.Value,
+				unit:  datum.Unit,
+			}
+		}
 		for key, value := range datum.Dimensions {
 			dimensionFields[key] = value
 		}
@@ -222,11 +242,15 @@ func buildEMFParts(namespace string, data []metrics.Datum) ([]emfField, []emfDir
 				Dimensions: [][]string{keys},
 			}
 			grouped[groupKey] = directive
+			groupedMetricNames[groupKey] = make(map[string]struct{})
 		}
-		directive.Metrics = append(directive.Metrics, emfMetricSpec{
-			Name: datum.Name,
-			Unit: datum.Unit,
-		})
+		if _, found := groupedMetricNames[groupKey][datum.Name]; !found {
+			directive.Metrics = append(directive.Metrics, emfMetricSpec{
+				Name: datum.Name,
+				Unit: datum.Unit,
+			})
+			groupedMetricNames[groupKey][datum.Name] = struct{}{}
+		}
 	}
 
 	fields := make([]emfField, 0, len(dimensionFields)+len(metricFields))
@@ -234,7 +258,7 @@ func buildEMFParts(namespace string, data []metrics.Datum) ([]emfField, []emfDir
 		fields = append(fields, emfField{name: key, value: dimensionFields[key]})
 	}
 	for _, key := range sortedMapKeys(metricFields) {
-		fields = append(fields, emfField{name: key, value: metricFields[key]})
+		fields = append(fields, emfField{name: key, value: metricFields[key].value})
 	}
 
 	groupKeys := make([]string, 0, len(grouped))

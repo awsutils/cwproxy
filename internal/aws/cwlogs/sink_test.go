@@ -2,6 +2,7 @@ package cwlogs
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -89,10 +90,10 @@ func TestSinkLogWithMetricsEmbedsEMFInSingleEvent(t *testing.T) {
 
 	client := &fakeLogsClient{}
 	sink, err := New(context.Background(), client, "/app/log/cwproxy", Options{
-		AppName:         "cwproxy",
-		MetricNamespace: "sniff2cw/cwproxy",
-		StreamName:      "stream-1",
-		FlushInterval:   10 * time.Millisecond,
+		AppName:                "cwproxy",
+		TrafficMetricNamespace: "app/traffic",
+		StreamName:             "stream-1",
+		FlushInterval:          10 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -111,16 +112,89 @@ func TestSinkLogWithMetricsEmbedsEMFInSingleEvent(t *testing.T) {
 			Value: 1,
 			Unit:  metrics.UnitCount,
 			Dimensions: map[string]string{
-				"Endpoint": "/health",
+				"AppName": "cwproxy",
 			},
 		},
 		{
-			Name:  "StatusCode",
+			Name:  "Latency",
+			Value: 1,
+			Unit:  metrics.UnitMilliseconds,
+			Dimensions: map[string]string{
+				"AppName": "cwproxy",
+			},
+		},
+		{
+			Name:  "RequestBodySize",
+			Value: 12,
+			Unit:  metrics.UnitBytes,
+			Dimensions: map[string]string{
+				"AppName": "cwproxy",
+			},
+		},
+		{
+			Name:  "ResponseBodySize",
+			Value: 24,
+			Unit:  metrics.UnitBytes,
+			Dimensions: map[string]string{
+				"AppName": "cwproxy",
+			},
+		},
+		{
+			Name:  "2XXStatusCode",
 			Value: 1,
 			Unit:  metrics.UnitCount,
 			Dimensions: map[string]string{
-				"Endpoint":   "/health",
-				"HTTPStatus": "200",
+				"AppName": "cwproxy",
+			},
+		},
+		{
+			Name:  "RequestCount",
+			Value: 1,
+			Unit:  metrics.UnitCount,
+			Dimensions: map[string]string{
+				"AppName":  "cwproxy",
+				"Endpoint": "/health",
+				"Method":   "GET",
+			},
+		},
+		{
+			Name:  "Latency",
+			Value: 1,
+			Unit:  metrics.UnitMilliseconds,
+			Dimensions: map[string]string{
+				"AppName":  "cwproxy",
+				"Endpoint": "/health",
+				"Method":   "GET",
+			},
+		},
+		{
+			Name:  "RequestBodySize",
+			Value: 12,
+			Unit:  metrics.UnitBytes,
+			Dimensions: map[string]string{
+				"AppName":  "cwproxy",
+				"Endpoint": "/health",
+				"Method":   "GET",
+			},
+		},
+		{
+			Name:  "ResponseBodySize",
+			Value: 24,
+			Unit:  metrics.UnitBytes,
+			Dimensions: map[string]string{
+				"AppName":  "cwproxy",
+				"Endpoint": "/health",
+				"Method":   "GET",
+			},
+		},
+		{
+			Name:  "2XXStatusCode",
+			Value: 1,
+			Unit:  metrics.UnitCount,
+			Dimensions: map[string]string{
+				"AppName":  "cwproxy",
+				"Endpoint": "/health",
+				"Method":   "GET",
 			},
 		},
 	}
@@ -143,8 +217,27 @@ func TestSinkLogWithMetricsEmbedsEMFInSingleEvent(t *testing.T) {
 	if !strings.Contains(message, "\"RequestCount\":1") {
 		t.Fatalf("RequestCount missing from CloudWatch log event: %q", message)
 	}
-	if !strings.Contains(message, "\"HTTPStatus\":\"200\"") {
-		t.Fatalf("HTTPStatus dimension missing from CloudWatch log event: %q", message)
+	if !strings.Contains(message, "\"Method\":\"GET\"") {
+		t.Fatalf("Method dimension missing from CloudWatch log event: %q", message)
+	}
+
+	payload := decodeEvent(t, message)
+	if payload["2XXStatusCode"] != float64(1) {
+		t.Fatalf("2XXStatusCode root field = %#v, want 1", payload["2XXStatusCode"])
+	}
+
+	envelope := decodeEnvelope(t, payload)
+	if len(envelope.CloudWatchMetrics) != 2 {
+		t.Fatalf("directive count = %d, want 2", len(envelope.CloudWatchMetrics))
+	}
+	if envelope.CloudWatchMetrics[0].Namespace != "app/traffic" || envelope.CloudWatchMetrics[1].Namespace != "app/traffic" {
+		t.Fatalf("unexpected namespaces: %#v", envelope.CloudWatchMetrics)
+	}
+	if got := envelope.CloudWatchMetrics[0].Dimensions; len(got) != 1 || len(got[0]) != 1 || got[0][0] != "AppName" {
+		t.Fatalf("aggregate dimensions = %#v", got)
+	}
+	if got := envelope.CloudWatchMetrics[1].Dimensions; len(got) != 1 || strings.Join(got[0], ",") != "AppName,Endpoint,Method" {
+		t.Fatalf("request dimensions = %#v", got)
 	}
 }
 
@@ -153,10 +246,10 @@ func TestSinkPublishEmitsMetricOnlyEMFEvent(t *testing.T) {
 
 	client := &fakeLogsClient{}
 	sink, err := New(context.Background(), client, "/app/log/cwproxy", Options{
-		AppName:         "cwproxy",
-		MetricNamespace: "sniff2cw/cwproxy",
-		StreamName:      "stream-1",
-		FlushInterval:   10 * time.Millisecond,
+		AppName:               "cwproxy",
+		HealthMetricNamespace: "app/health",
+		StreamName:            "stream-1",
+		FlushInterval:         10 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -168,6 +261,7 @@ func TestSinkPublishEmitsMetricOnlyEMFEvent(t *testing.T) {
 			Value: 1,
 			Unit:  metrics.UnitCount,
 			Dimensions: map[string]string{
+				"AppName":  "cwproxy",
 				"Endpoint": "http://127.0.0.1:8080/health",
 			},
 		},
@@ -176,6 +270,7 @@ func TestSinkPublishEmitsMetricOnlyEMFEvent(t *testing.T) {
 			Value: 2.5,
 			Unit:  metrics.UnitMilliseconds,
 			Dimensions: map[string]string{
+				"AppName":  "cwproxy",
 				"Endpoint": "http://127.0.0.1:8080/health",
 			},
 		},
@@ -204,4 +299,41 @@ func TestSinkPublishEmitsMetricOnlyEMFEvent(t *testing.T) {
 	if !strings.Contains(message, "\"_aws\"") {
 		t.Fatalf("EMF envelope missing from CloudWatch metric event: %q", message)
 	}
+
+	payload := decodeEvent(t, message)
+	envelope := decodeEnvelope(t, payload)
+	if len(envelope.CloudWatchMetrics) != 1 {
+		t.Fatalf("directive count = %d, want 1", len(envelope.CloudWatchMetrics))
+	}
+	if envelope.CloudWatchMetrics[0].Namespace != "app/health" {
+		t.Fatalf("namespace = %q, want app/health", envelope.CloudWatchMetrics[0].Namespace)
+	}
+	if got := envelope.CloudWatchMetrics[0].Dimensions; len(got) != 1 || strings.Join(got[0], ",") != "AppName,Endpoint" {
+		t.Fatalf("health dimensions = %#v", got)
+	}
+}
+
+func decodeEvent(t *testing.T, message string) map[string]any {
+	t.Helper()
+
+	payload := map[string]any{}
+	if err := json.Unmarshal([]byte(message), &payload); err != nil {
+		t.Fatalf("failed to decode log event: %v", err)
+	}
+	return payload
+}
+
+func decodeEnvelope(t *testing.T, payload map[string]any) emfEnvelope {
+	t.Helper()
+
+	rawEnvelope, err := json.Marshal(payload["_aws"])
+	if err != nil {
+		t.Fatalf("failed to remarshal EMF envelope: %v", err)
+	}
+
+	var envelope emfEnvelope
+	if err := json.Unmarshal(rawEnvelope, &envelope); err != nil {
+		t.Fatalf("failed to decode EMF envelope: %v", err)
+	}
+	return envelope
 }

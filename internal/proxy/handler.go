@@ -212,7 +212,7 @@ func (h *Handler) finalize(request *http.Request, recorder *responseRecorder, st
 		responseSize = state.responseCapture.Total()
 	}
 
-	metricData := buildMetrics(path, status, end.Sub(state.start), state.requestCapture.Total(), responseSize)
+	metricData := buildMetrics(h.appName, path, request.Method, status, end.Sub(state.start), state.requestCapture.Total(), responseSize)
 	if metricSink, ok := h.sink.(logging.MetricSink); ok {
 		if err := metricSink.LogWithMetrics(context.Background(), entry, metricData); err != nil && h.reporter != nil {
 			h.reporter("failed to write CloudWatch EMF log entry: %v", err)
@@ -228,57 +228,88 @@ func (h *Handler) finalize(request *http.Request, recorder *responseRecorder, st
 	}
 }
 
-func buildMetrics(path string, status int, latency time.Duration, requestBytes, responseBytes int64) []metrics.Datum {
-	dimensions := map[string]string{
+func buildMetrics(appName, path, method string, status int, latency time.Duration, requestBytes, responseBytes int64) []metrics.Datum {
+	aggregateDimensions := map[string]string{
+		"AppName": appName,
+	}
+	requestDimensions := map[string]string{
+		"AppName":  appName,
 		"Endpoint": path,
+		"Method":   method,
 	}
 
-	data := []metrics.Datum{
+	data := make([]metrics.Datum, 0, 10)
+	data = append(data, buildTrafficMetricSet(aggregateDimensions, latency, requestBytes, responseBytes)...)
+	data = append(data, buildTrafficMetricSet(requestDimensions, latency, requestBytes, responseBytes)...)
+
+	if statusMetric := statusBucketMetricName(status); statusMetric != "" {
+		data = append(data,
+			metrics.Datum{
+				Name:       statusMetric,
+				Value:      1,
+				Unit:       metrics.UnitCount,
+				Dimensions: aggregateDimensions,
+			},
+			metrics.Datum{
+				Name:       statusMetric,
+				Value:      1,
+				Unit:       metrics.UnitCount,
+				Dimensions: requestDimensions,
+			},
+		)
+	}
+
+	return data
+}
+
+func buildTrafficMetricSet(dimensions map[string]string, latency time.Duration, requestBytes, responseBytes int64) []metrics.Datum {
+	return []metrics.Datum{
 		{
 			Name:       "RequestCount",
 			Value:      1,
 			Unit:       metrics.UnitCount,
-			Dimensions: dimensions,
+			Dimensions: cloneDimensions(dimensions),
 		},
 		{
 			Name:       "Latency",
 			Value:      float64(latency) / float64(time.Millisecond),
 			Unit:       metrics.UnitMilliseconds,
-			Dimensions: dimensions,
+			Dimensions: cloneDimensions(dimensions),
 		},
 		{
 			Name:       "RequestBodySize",
 			Value:      float64(requestBytes),
 			Unit:       metrics.UnitBytes,
-			Dimensions: dimensions,
+			Dimensions: cloneDimensions(dimensions),
 		},
 		{
 			Name:       "ResponseBodySize",
 			Value:      float64(responseBytes),
 			Unit:       metrics.UnitBytes,
-			Dimensions: dimensions,
-		},
-		{
-			Name:  "StatusCode",
-			Value: 1,
-			Unit:  metrics.UnitCount,
-			Dimensions: map[string]string{
-				"Endpoint":   path,
-				"HTTPStatus": strconv.Itoa(status),
-			},
+			Dimensions: cloneDimensions(dimensions),
 		},
 	}
+}
 
-	if status >= http.StatusBadRequest {
-		data = append(data, metrics.Datum{
-			Name:       "ErrorCount",
-			Value:      1,
-			Unit:       metrics.UnitCount,
-			Dimensions: dimensions,
-		})
+func statusBucketMetricName(status int) string {
+	switch {
+	case status >= 200 && status < 300:
+		return "2XXStatusCode"
+	case status >= 400 && status < 500:
+		return "4XXStatusCode"
+	case status >= 500 && status < 600:
+		return "5XXStatusCode"
+	default:
+		return ""
 	}
+}
 
-	return data
+func cloneDimensions(values map[string]string) map[string]string {
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func getExchangeState(ctx context.Context) *exchangeState {

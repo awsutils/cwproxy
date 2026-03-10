@@ -54,7 +54,8 @@ func TestProbeAllPublishesSuccessAndFailure(t *testing.T) {
 
 	publisher := &capturePublisher{}
 	runner := NewRunner([]*url.URL{successURL, failedURL}, publisher, Options{
-		Client: &http.Client{Timeout: 200 * time.Millisecond},
+		AppName: "cwproxy",
+		Client:  &http.Client{Timeout: 200 * time.Millisecond},
 	})
 
 	runner.probeAll(context.Background())
@@ -69,6 +70,9 @@ func TestProbeAllPublishesSuccessAndFailure(t *testing.T) {
 	statuses := map[string]float64{}
 	for _, datum := range publisher.data {
 		if datum.Name == "HealthStatus" {
+			if datum.Dimensions["AppName"] != "cwproxy" {
+				t.Fatalf("AppName dimension = %q, want cwproxy", datum.Dimensions["AppName"])
+			}
 			statuses[datum.Dimensions["Endpoint"]] = datum.Value
 		}
 	}
