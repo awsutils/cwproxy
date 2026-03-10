@@ -20,14 +20,15 @@ const (
 )
 
 type Config struct {
-	ProxyPort        int
-	AppPort          int
-	AppName          string
-	LogGroupName     string
-	TargetURL        *url.URL
-	HealthURLs       []*url.URL
-	HealthInterval   time.Duration
-	CaptureBodyLimit int
+	ProxyPort          int
+	AppPort            int
+	AppName            string
+	LogGroupName       string
+	HealthLogGroupName string
+	TargetURL          *url.URL
+	HealthURLs         []*url.URL
+	HealthInterval     time.Duration
+	CaptureBodyLimit   int
 }
 
 type lookupEnvFunc func(string) (string, bool)
@@ -66,12 +67,17 @@ func LoadFromEnv(lookupEnv lookupEnvFunc, hostname hostnameFunc) (Config, error)
 	if logGroupName == "" {
 		logGroupName = fmt.Sprintf("/app/log/%s", appName)
 	}
+	healthLogGroupName := strings.TrimSpace(envOrDefault(lookupEnv, "HEALTH_LOG_GROUP_NAME", fmt.Sprintf("/app/log/%s/health", appName)))
+	if healthLogGroupName == "" {
+		healthLogGroupName = fmt.Sprintf("/app/log/%s/health", appName)
+	}
 
 	return Config{
-		ProxyPort:    proxyPort,
-		AppPort:      appPort,
-		AppName:      appName,
-		LogGroupName: logGroupName,
+		ProxyPort:          proxyPort,
+		AppPort:            appPort,
+		AppName:            appName,
+		LogGroupName:       logGroupName,
+		HealthLogGroupName: healthLogGroupName,
 		TargetURL: &url.URL{
 			Scheme: "http",
 			Host:   net.JoinHostPort("127.0.0.1", strconv.Itoa(appPort)),

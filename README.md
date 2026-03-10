@@ -39,6 +39,7 @@ Distribution builds:
 | `APP_NAME` | hostname | Application name used in log/metric naming |
 | `HEALTH_URLS` | `127.0.0.1:{APP_PORT}/health` | Comma-separated health endpoints |
 | `LOG_GROUP_NAME` | `/app/log/{APP_NAME}` | CloudWatch Logs group name |
+| `HEALTH_LOG_GROUP_NAME` | `/app/log/{APP_NAME}/health` | CloudWatch Logs group name for health EMF events |
 | `AWS_REGION` / `AWS_DEFAULT_REGION` | none | AWS region used to enable CloudWatch delivery |
 
 Important: the current runtime enables CloudWatch Logs and EMF-backed metrics only when `AWS_REGION` or `AWS_DEFAULT_REGION` is present in the environment. Shared AWS credentials from `~/.aws/credentials` can still be used, but set the region env var explicitly when starting the proxy.
@@ -46,11 +47,13 @@ Important: the current runtime enables CloudWatch Logs and EMF-backed metrics on
 CloudWatch outputs:
 
 - Logs group: `LOG_GROUP_NAME`
+- Health logs group: `HEALTH_LOG_GROUP_NAME`
 - Traffic metrics namespace: `app/traffic`
 - Health metrics namespace: `app/health`
 - Traffic dimensions: `{AppName}` and `{AppName, Endpoint, Method}`
 - Health dimensions: `{AppName, Endpoint}`
 - Request logs and request metrics are emitted together in the same CloudWatch Logs event via EMF
+- Health metrics are emitted as EMF events in the health log group
 
 ## Local Run
 
@@ -115,6 +118,7 @@ $env:APP_PORT = "18080"
 $env:APP_NAME = "cwproxy-local-test"
 $env:HEALTH_URLS = "/health"
 $env:LOG_GROUP_NAME = "/app/log/cwproxy-local-test"
+$env:HEALTH_LOG_GROUP_NAME = "/app/log/cwproxy-local-test/health"
 $env:AWS_REGION = "us-east-1"
 
 .\cwproxy.exe
@@ -187,6 +191,7 @@ export APP_PORT=18080
 export APP_NAME=cwproxy-local-test
 export HEALTH_URLS=/health
 export LOG_GROUP_NAME=/app/log/cwproxy-local-test
+export HEALTH_LOG_GROUP_NAME=/app/log/cwproxy-local-test/health
 export AWS_REGION=us-east-1
 
 ./cwproxy
@@ -215,6 +220,7 @@ export APP_PORT=18080
 export APP_NAME=cwproxy-local-test
 export HEALTH_URLS=/health
 export LOG_GROUP_NAME=/app/log/cwproxy-local-test
+export HEALTH_LOG_GROUP_NAME=/app/log/cwproxy-local-test/health
 export AWS_REGION=us-east-1
 
 ./cwproxy

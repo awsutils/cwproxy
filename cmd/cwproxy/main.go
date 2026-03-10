@@ -45,7 +45,8 @@ func run() error {
 
 	stdoutSink := logging.NewStdoutSink(os.Stdout)
 	logSink := logging.Sink(stdoutSink)
-	metricPublisher := metrics.Publisher(metrics.NopPublisher{})
+	proxyMetricPublisher := metrics.Publisher(metrics.NopPublisher{})
+	healthMetricPublisher := metrics.Publisher(metrics.NopPublisher{})
 
 	closers := []contextCloser{stdoutSink}
 
@@ -61,26 +62,38 @@ func run() error {
 		if awsErr != nil {
 			reporter.Printf("failed to load AWS configuration: %v", awsErr)
 		} else {
-			logStreamName := sanitizeStreamName(cfg.AppName, time.Now(), os.Getpid())
-
-			cwLogSink, sinkErr := cwlogs.New(rootContext, cloudwatchlogs.NewFromConfig(awsConfig), cfg.LogGroupName, cwlogs.Options{
+			client := cloudwatchlogs.NewFromConfig(awsConfig)
+			now := time.Now()
+			trafficLogSink, trafficSinkErr := cwlogs.New(rootContext, client, cfg.LogGroupName, cwlogs.Options{
 				AppName:                cfg.AppName,
 				TrafficMetricNamespace: "app/traffic",
-				HealthMetricNamespace:  "app/health",
-				StreamName:             logStreamName,
+				StreamName:             sanitizeStreamName(cfg.AppName+"-traffic", now, os.Getpid()),
 				Reporter:               reporter.Printf,
 			})
-			if sinkErr != nil {
-				reporter.Printf("failed to initialize CloudWatch Logs sink: %v", sinkErr)
+			if trafficSinkErr != nil {
+				reporter.Printf("failed to initialize CloudWatch traffic sink: %v", trafficSinkErr)
 			} else {
-				logSink = logging.NewMultiSink(stdoutSink, cwLogSink)
-				metricPublisher = cwLogSink
-				closers = append(closers, cwLogSink)
+				logSink = logging.NewMultiSink(stdoutSink, trafficLogSink)
+				proxyMetricPublisher = trafficLogSink
+				closers = append(closers, trafficLogSink)
+			}
+
+			healthLogSink, healthSinkErr := cwlogs.New(rootContext, client, cfg.HealthLogGroupName, cwlogs.Options{
+				AppName:               cfg.AppName,
+				HealthMetricNamespace: "app/health",
+				StreamName:            sanitizeStreamName(cfg.AppName+"-health", now, os.Getpid()),
+				Reporter:              reporter.Printf,
+			})
+			if healthSinkErr != nil {
+				reporter.Printf("failed to initialize CloudWatch health sink: %v", healthSinkErr)
+			} else {
+				healthMetricPublisher = healthLogSink
+				closers = append(closers, healthLogSink)
 			}
 		}
 	}
 
-	handler := proxy.New(cfg.TargetURL, logSink, metricPublisher, proxy.Options{
+	handler := proxy.New(cfg.TargetURL, logSink, proxyMetricPublisher, proxy.Options{
 		AppName:         cfg.AppName,
 		MaxCaptureBytes: cfg.CaptureBodyLimit,
 		Reporter:        reporter.Printf,
@@ -95,7 +108,7 @@ func run() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	healthRunner := health.NewRunner(cfg.HealthURLs, metricPublisher, health.Options{
+	healthRunner := health.NewRunner(cfg.HealthURLs, healthMetricPublisher, health.Options{
 		AppName:  cfg.AppName,
 		Interval: cfg.HealthInterval,
 		Reporter: reporter.Printf,

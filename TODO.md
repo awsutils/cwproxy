@@ -8,7 +8,7 @@ The implementation should treat fail-safe behavior, robustness, crash prevention
    Create `go.mod`, a `cmd/cwproxy` entrypoint, and `internal` packages for config, proxy, logging, metrics, health, and AWS adapters.
 
 2. Define runtime configuration.
-   Implement env parsing for `PROXY_PORT`, `APP_PORT`, `APP_NAME`, `HEALTH_URLS`, and `LOG_GROUP_NAME`, including the exact `HEALTH_URLS` default-resolution rules from the spec.
+   Implement env parsing for `PROXY_PORT`, `APP_PORT`, `APP_NAME`, `HEALTH_URLS`, `LOG_GROUP_NAME`, and `HEALTH_LOG_GROUP_NAME`, including the exact `HEALTH_URLS` default-resolution rules from the spec.
 
 3. Build the reverse proxy core.
    Use `net/http` with `httputil.ReverseProxy`, targeting the app on `APP_PORT`, and add request/response capture so delay, body size, status, and payload metadata can be recorded.

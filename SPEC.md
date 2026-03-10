@@ -49,6 +49,12 @@ Examples:
 - Default: `/app/log/{APP_NAME}`
 - CloudWatch Logs group name used for log delivery.
 
+### `HEALTH_LOG_GROUP_NAME`
+
+- Default: `/app/log/{APP_NAME}/health`
+- CloudWatch Logs group name used for health EMF events.
+- This setting is independent from `LOG_GROUP_NAME` so health delivery can be separated operationally from traffic request logs.
+
 ### `AWS_REGION` / `AWS_DEFAULT_REGION`
 
 - Default: unset
@@ -64,6 +70,7 @@ Logs are emitted after each request/response pair is matched.
 - Stdout log entries are minified single-line JSON with a stable field order.
 - CloudWatch request log entries use the same JSON payload, but insert a newline immediately after `_q` to improve readability in the CloudWatch console.
 - CloudWatch traffic log entries may also include EMF metric fields and an `_aws` envelope in the same event.
+- Health EMF events are written to `HEALTH_LOG_GROUP_NAME`, not `LOG_GROUP_NAME`.
 
 Example stdout log entry:
 

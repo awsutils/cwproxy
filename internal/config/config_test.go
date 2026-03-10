@@ -27,6 +27,9 @@ func TestLoadFromEnvDefaults(t *testing.T) {
 	if cfg.LogGroupName != "/app/log/proxy-host" {
 		t.Fatalf("LogGroupName = %q", cfg.LogGroupName)
 	}
+	if cfg.HealthLogGroupName != "/app/log/proxy-host/health" {
+		t.Fatalf("HealthLogGroupName = %q", cfg.HealthLogGroupName)
+	}
 	if got := cfg.TargetURL.String(); got != "http://127.0.0.1:8080" {
 		t.Fatalf("TargetURL = %q", got)
 	}
@@ -127,6 +130,30 @@ func TestLoadFromEnvRejectsInvalidPorts(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected an error for invalid PROXY_PORT")
+	}
+}
+
+func TestLoadFromEnvUsesConfiguredHealthLogGroupName(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := LoadFromEnv(func(key string) (string, bool) {
+		switch key {
+		case "APP_NAME":
+			return "cwproxy", true
+		case "HEALTH_LOG_GROUP_NAME":
+			return "/custom/health/log/group", true
+		default:
+			return "", false
+		}
+	}, func() (string, error) {
+		return "ignored-hostname", nil
+	})
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+
+	if cfg.HealthLogGroupName != "/custom/health/log/group" {
+		t.Fatalf("HealthLogGroupName = %q", cfg.HealthLogGroupName)
 	}
 }
 
