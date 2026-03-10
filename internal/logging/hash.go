@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const shortHashBytes = 3
+
 func entryStructureHash(request Request, response Response) string {
 	return hashStructureSignature(
 		"queries:" + structureSignature(request.Queries) +
@@ -32,7 +34,7 @@ func bodyStructureHash(value any) string {
 
 func hashStructureSignature(signature string) string {
 	sum := sha256.Sum256([]byte(signature))
-	return hex.EncodeToString(sum[:16])
+	return hex.EncodeToString(sum[:shortHashBytes])
 }
 
 func structureSignature(value any) string {

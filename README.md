@@ -4,7 +4,7 @@
 
 When available, logs also include auto-detected AWS runtime metadata for EC2, ECS, and EKS under `aws_meta`.
 
-Logs also include structural hashes for `request.queries`, `request.body`, and `response.body`, plus a top-level `global_hash` that combines those structures. The body hashes are based on key structure only and ignore scalar values.
+Logs also include 6-character structural hashes for `request.queries`, `request.body`, and `response.body`, plus a top-level `global_hash` that combines those structures. The body hashes are based on key structure only and ignore scalar values.
 
 The service is designed to be fail-safe and defensive by default:
 

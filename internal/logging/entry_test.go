@@ -243,6 +243,9 @@ func TestStructureHashesIgnoreBodyValuesButTrackShapeChanges(t *testing.T) {
 	if first == "" {
 		t.Fatal("expected first hash to be populated")
 	}
+	if len(first) != 6 {
+		t.Fatalf("expected 6-character body hash, got %q", first)
+	}
 	if first != second {
 		t.Fatalf("hash changed when only values changed: %q != %q", first, second)
 	}
@@ -268,6 +271,9 @@ func TestQueryStructureHashIgnoresValues(t *testing.T) {
 
 	if first == "" {
 		t.Fatal("expected first hash to be populated")
+	}
+	if len(first) != 6 {
+		t.Fatalf("expected 6-character query hash, got %q", first)
 	}
 	if first != second {
 		t.Fatalf("query hash changed when only values changed: %q != %q", first, second)
@@ -336,6 +342,9 @@ func TestEntryStructureHashTracksCombinedRequestAndResponseChanges(t *testing.T)
 
 	if first == "" {
 		t.Fatal("expected combined hash to be populated")
+	}
+	if len(first) != 6 {
+		t.Fatalf("expected 6-character combined hash, got %q", first)
 	}
 	if first != second {
 		t.Fatalf("combined hash changed when only values changed: %q != %q", first, second)

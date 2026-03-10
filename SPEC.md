@@ -4,7 +4,7 @@
 
 When available, logs must include auto-detected AWS runtime metadata for EC2, ECS, and EKS.
 
-Logs must also include stable structural hashes for request queries, request bodies, and response bodies, plus a combined top-level hash for the request/response structure as a whole.
+Logs must also include stable 6-character structural hashes for request queries, request bodies, and response bodies, plus a combined top-level hash for the request/response structure as a whole.
 
 The application must be fail-safe, robust, performance-optimized, and efficient by default. Every component should handle errors defensively, avoid process crashes whenever recovery is possible, and continue operating safely under unexpected conditions.
 
@@ -98,7 +98,7 @@ Example stdout log entry:
       "pod_name": "cwproxy-123"
     }
   },
-  "global_hash": "0123456789abcdef0123456789abcdef",
+  "global_hash": "012345",
   "delay": 123.456,
   "request": {
     "time": 1700000000000,
@@ -108,11 +108,11 @@ Example stdout log entry:
     "method": "POST",
     "url": "example.com:8080/api/foo?key=value",
     "queries": { "key": "value" },
-    "queries_hash": "1f2e3d4c5b6a79801f2e3d4c5b6a7980",
+    "queries_hash": "1f2e3d",
     "cookies": { "session": "abc" },
     "headers": { "Content-Type": "application/json" },
     "body": { "field": "value" },
-    "body_hash": "0f1e2d3c4b5a69780f1e2d3c4b5a6978"
+    "body_hash": "0f1e2d"
   },
   "response": {
     "time": 1700000000123,
@@ -120,7 +120,7 @@ Example stdout log entry:
     "headers": { "Content-Type": "application/json" },
     "set_cookies": { "session": "xyz" },
     "body": { "result": "ok" },
-    "body_hash": "abcdef0123456789abcdef0123456789"
+    "body_hash": "abcdef"
   }
 }
 ```
@@ -133,9 +133,9 @@ Example stdout log entry:
 - `body`: parsed as an object when `Content-Type` is `application/json` or `application/x-www-form-urlencoded`; otherwise stored as a raw string
 - Truncated request or response bodies must be marked with `...(truncated)` instead of causing unbounded memory growth
 - `aws_meta`: optional AWS runtime metadata with any detected EC2, ECS, and EKS details
-- `queries_hash`: stable hash of the request query structure
-- `request.body_hash` and `response.body_hash`: stable hashes of body structure based on keys and container shape only, ignoring scalar values
-- `global_hash`: stable combined hash derived from `request.queries`, `request.body`, and `response.body`
+- `queries_hash`: stable 6-character hash of the request query structure
+- `request.body_hash` and `response.body_hash`: stable 6-character hashes of body structure based on keys and container shape only, ignoring scalar values
+- `global_hash`: stable 6-character combined hash derived from `request.queries`, `request.body`, and `response.body`
 
 ---
 
