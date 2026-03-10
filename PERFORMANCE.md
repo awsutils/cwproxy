@@ -26,16 +26,17 @@ Command:
 go test -bench BenchmarkHandlerRoundTrip -benchmem ./internal/proxy -run ^$
 ```
 
-Result:
+Observed results on 2026-03-10:
 
-- `67010 ns/op`
-- `16962 B/op`
-- `171 allocs/op`
+- sample 0: `64399 ns/op`, `16982 B/op`, `171 allocs/op`
+- sample 1: `67010 ns/op`, `16962 B/op`, `171 allocs/op`
+- validation rerun: `83848 ns/op`, `16878 B/op`, `171 allocs/op`
 
 Interpretation:
 
-- The current proxy handler itself costs about `67 us` per request in the benchmarked path.
-- The benchmarked allocation cost is about `16.6 KiB` per request.
+- The current proxy handler itself costs about `64-84 us` per request in the benchmarked path on this machine.
+- The benchmarked allocation cost is about `16.5-16.9 KiB` per request.
+- Allocation count was stable at `171 allocs/op` across runs.
 - This is application-layer proxy overhead only. It does not include real network latency, real upstream work, or CloudWatch service latency.
 
 ### Reverse Proxy Delay Budget
@@ -172,10 +173,10 @@ Expected behavior:
 
 ## Capacity Interpretation
 
-A rough interpretation of the current `67 us/op` benchmark is:
+A rough interpretation of the current `64-84 us/op` benchmark window is:
 
-- the proxy-only handler path consumes about `67 ms` of CPU time per `1000` requests
-- in a purely local microbenchmark, one fully busy core would theoretically have room for roughly `14k-15k` such handler operations per second
+- the proxy-only handler path consumes about `64-84 ms` of CPU time per `1000` requests
+- in a purely local microbenchmark, one fully busy core would theoretically have room for roughly `12k-15k` such handler operations per second
 
 This is only a directional planning number. Real throughput will be lower because production traffic also pays for:
 
