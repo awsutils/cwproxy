@@ -2,6 +2,7 @@ package cwlogs
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,5 +75,9 @@ func TestSinkInitializesAndFlushesEvents(t *testing.T) {
 	}
 	if len(client.inputs) == 0 || len(client.inputs[0].LogEvents) != 2 {
 		t.Fatalf("PutLogEvents inputs = %#v", client.inputs)
+	}
+	message := *client.inputs[0].LogEvents[0].Message
+	if !strings.Contains(message, "\",\n\"app_name\"") {
+		t.Fatalf("CloudWatch message missing summary newline: %q", message)
 	}
 }

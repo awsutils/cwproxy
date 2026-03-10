@@ -106,7 +106,7 @@ func (s *Sink) Log(ctx context.Context, entry logging.Entry) error {
 		return errors.New("cloudwatch logs sink is closed")
 	}
 
-	message, err := logging.Marshal(entry)
+	message, err := logging.MarshalForCloudWatch(entry)
 	if err != nil {
 		return err
 	}

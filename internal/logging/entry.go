@@ -59,6 +59,14 @@ func Marshal(entry Entry) ([]byte, error) {
 	return json.Marshal(ensureEntry(entry))
 }
 
+func MarshalForCloudWatch(entry Entry) ([]byte, error) {
+	body, err := Marshal(entry)
+	if err != nil {
+		return nil, err
+	}
+	return insertNewlineAfterSummary(body), nil
+}
+
 func ParseBody(contentType string, body []byte, truncated bool) any {
 	if len(body) == 0 {
 		return nil
@@ -182,4 +190,35 @@ func ensureResponse(response Response) Response {
 		response.SetCookies = map[string]any{}
 	}
 	return response
+}
+
+func insertNewlineAfterSummary(body []byte) []byte {
+	inString := false
+	escaped := false
+
+	for index, current := range body {
+		if escaped {
+			escaped = false
+			continue
+		}
+
+		switch current {
+		case '\\':
+			if inString {
+				escaped = true
+			}
+		case '"':
+			inString = !inString
+		case ',':
+			if !inString {
+				formatted := make([]byte, 0, len(body)+1)
+				formatted = append(formatted, body[:index+1]...)
+				formatted = append(formatted, '\n')
+				formatted = append(formatted, body[index+1:]...)
+				return formatted
+			}
+		}
+	}
+
+	return body
 }

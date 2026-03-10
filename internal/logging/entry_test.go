@@ -126,3 +126,29 @@ func TestDurationFormatsWithThreeDecimals(t *testing.T) {
 		t.Fatalf("Marshal() = %s", body)
 	}
 }
+
+func TestMarshalForCloudWatchInsertsNewlineAfterSummary(t *testing.T) {
+	t.Parallel()
+
+	entry := NewEntry(
+		"cwproxy",
+		Request{
+			Method: http.MethodGet,
+			Path:   "/health",
+		},
+		Response{
+			Status: http.StatusOK,
+		},
+		1500*time.Microsecond,
+	)
+
+	body, err := MarshalForCloudWatch(entry)
+	if err != nil {
+		t.Fatalf("MarshalForCloudWatch returned error: %v", err)
+	}
+
+	want := "{\"_q\":\"cwproxy GET /health 200 1.500ms\",\n\"app_name\":\"cwproxy\",\"delay\":1.500,\"request\":{\"time\":0,\"host\":\"\",\"port\":0,\"path\":\"/health\",\"method\":\"GET\",\"url\":\"\",\"queries\":{},\"cookies\":{},\"headers\":{},\"body\":null},\"response\":{\"time\":0,\"status\":200,\"headers\":{},\"set_cookies\":{},\"body\":null}}"
+	if string(body) != want {
+		t.Fatalf("MarshalForCloudWatch() = %s, want %s", body, want)
+	}
+}
