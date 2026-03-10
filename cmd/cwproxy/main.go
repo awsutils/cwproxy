@@ -58,15 +58,16 @@ func run() error {
 
 	closers := []contextCloser{stdoutSink}
 
-	awsRegion := os.Getenv("AWS_REGION")
-	if awsRegion == "" {
-		awsRegion = os.Getenv("AWS_DEFAULT_REGION")
-	}
+	awsRegion, awsRegionSource := resolveAWSRegion(runtimeMetadata)
 
 	if awsRegion == "" {
 		reporter.Printf("AWS region is not configured; CloudWatch Logs and Metrics are disabled")
 	} else {
-		awsConfig, awsErr := awscfg.LoadDefaultConfig(rootContext)
+		if awsRegionSource == "runtime metadata" {
+			reporter.Printf("AWS region is not configured in the environment; using %q from runtime metadata", awsRegion)
+		}
+
+		awsConfig, awsErr := awscfg.LoadDefaultConfig(rootContext, awscfg.WithRegion(awsRegion))
 		if awsErr != nil {
 			reporter.Printf("failed to load AWS configuration: %v", awsErr)
 		} else {
@@ -184,4 +185,17 @@ func sanitizeStreamName(appName string, now time.Time, pid int) string {
 		name = "cwproxy"
 	}
 	return fmt.Sprintf("%s-%d-%d", name, pid, now.Unix())
+}
+
+func resolveAWSRegion(snapshot *metadata.Snapshot) (string, string) {
+	if region := os.Getenv("AWS_REGION"); region != "" {
+		return region, "AWS_REGION"
+	}
+	if region := os.Getenv("AWS_DEFAULT_REGION"); region != "" {
+		return region, "AWS_DEFAULT_REGION"
+	}
+	if region := metadata.InferAWSRegion(snapshot); region != "" {
+		return region, "runtime metadata"
+	}
+	return "", ""
 }

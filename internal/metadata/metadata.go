@@ -334,3 +334,47 @@ func isZeroECS(metadata *ECS) bool {
 func isZeroEKS(metadata *EKS) bool {
 	return metadata == nil || *metadata == (EKS{})
 }
+
+func InferAWSRegion(snapshot *Snapshot) string {
+	if snapshot == nil {
+		return ""
+	}
+	if snapshot.EC2 != nil {
+		if region := strings.TrimSpace(snapshot.EC2.Region); region != "" {
+			return region
+		}
+	}
+	if snapshot.ECS != nil {
+		if region := regionFromARN(snapshot.ECS.TaskARN); region != "" {
+			return region
+		}
+		if region := regionFromARN(snapshot.ECS.ContainerARN); region != "" {
+			return region
+		}
+		if region := regionFromAvailabilityZone(snapshot.ECS.AvailabilityZone); region != "" {
+			return region
+		}
+	}
+	return ""
+}
+
+func regionFromARN(value string) string {
+	parts := strings.Split(strings.TrimSpace(value), ":")
+	if len(parts) < 6 || parts[0] != "arn" {
+		return ""
+	}
+	return strings.TrimSpace(parts[3])
+}
+
+func regionFromAvailabilityZone(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) < 2 {
+		return ""
+	}
+
+	last := value[len(value)-1]
+	if last < 'a' || last > 'z' {
+		return ""
+	}
+	return value[:len(value)-1]
+}

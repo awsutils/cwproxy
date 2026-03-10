@@ -186,6 +186,62 @@ func TestLoadReturnsNilWhenNoMetadataIsAvailable(t *testing.T) {
 	}
 }
 
+func TestInferAWSRegion(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		snapshot *Snapshot
+		want     string
+	}{
+		{
+			name: "ec2 region wins",
+			snapshot: &Snapshot{
+				EC2: &EC2{Region: "ap-northeast-2"},
+				ECS: &ECS{
+					TaskARN:          "arn:aws:ecs:us-east-1:123456789012:task/abc",
+					AvailabilityZone: "us-east-1a",
+				},
+			},
+			want: "ap-northeast-2",
+		},
+		{
+			name: "ecs task arn fallback",
+			snapshot: &Snapshot{
+				ECS: &ECS{
+					TaskARN: "arn:aws:ecs:us-west-2:123456789012:task/abc",
+				},
+			},
+			want: "us-west-2",
+		},
+		{
+			name: "ecs availability zone fallback",
+			snapshot: &Snapshot{
+				ECS: &ECS{
+					AvailabilityZone: "eu-central-1b",
+				},
+			},
+			want: "eu-central-1",
+		},
+		{
+			name:     "missing region",
+			snapshot: &Snapshot{},
+			want:     "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := InferAWSRegion(testCase.snapshot); got != testCase.want {
+				t.Fatalf("InferAWSRegion() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
 func encodeToken(t *testing.T, claims map[string]any) string {
 	t.Helper()
 

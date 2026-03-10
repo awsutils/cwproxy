@@ -83,8 +83,8 @@ Environment variables:
 | `HEALTH_URLS` | `127.0.0.1:{APP_PORT}/health` | Comma-separated health endpoints |
 | `LOG_GROUP_NAME` | `/app/log/{APP_NAME}` | CloudWatch Logs group for traffic logs and traffic EMF |
 | `HEALTH_LOG_GROUP_NAME` | `/app/log/{APP_NAME}/health` | CloudWatch Logs group for health logs and health EMF |
-| `AWS_REGION` | unset | Enables AWS delivery when set |
-| `AWS_DEFAULT_REGION` | unset | Alternative AWS region variable |
+| `AWS_REGION` | unset | Preferred AWS region override |
+| `AWS_DEFAULT_REGION` | unset | Secondary AWS region override |
 
 Current fixed runtime defaults:
 
@@ -94,7 +94,11 @@ Current fixed runtime defaults:
 
 CloudWatch behavior:
 
-- if neither `AWS_REGION` nor `AWS_DEFAULT_REGION` is set, CloudWatch delivery is disabled
+- `AWS_REGION` is used first when set
+- `AWS_DEFAULT_REGION` is used when `AWS_REGION` is unset
+- if neither env var is set, `cwproxy` falls back to region detection from runtime metadata
+- current metadata fallback covers EC2 instance identity region and ECS metadata-derived region
+- if no region can be resolved from env vars or metadata, CloudWatch delivery is disabled
 - stdout logging still works when CloudWatch delivery is disabled
 - if AWS config loading or CloudWatch sink initialization fails, the proxy keeps serving traffic and continues logging to stdout
 - AWS credentials still follow the normal AWS SDK default credential chain

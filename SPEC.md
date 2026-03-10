@@ -62,8 +62,12 @@ Examples:
 ### `AWS_REGION` / `AWS_DEFAULT_REGION`
 
 - Default: unset
-- Enables CloudWatch delivery when one of these variables is present.
-- Shared AWS credentials may still be loaded from standard AWS config files, but region selection must be available in the environment for CloudWatch integration to start.
+- `AWS_REGION` must be preferred when set.
+- `AWS_DEFAULT_REGION` must be used when `AWS_REGION` is unset.
+- If both are unset, the application must fall back to region detection from runtime metadata when possible.
+- Runtime metadata fallback must support EC2 region detection and ECS region inference.
+- Shared AWS credentials may still be loaded from standard AWS config files.
+- If no region can be resolved from env vars or metadata, CloudWatch integration must stay disabled.
 
 ---
 
