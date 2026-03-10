@@ -5,4 +5,6 @@ After making changes to this repository:
 - Format the Go application.
 - Add or update backend tests as needed.
 - Run a performance test and verify the reverse proxy delay.
+- Treat fail-safe behavior, crash prevention, and defensive error handling as core requirements.
+- Prefer robust, efficient, performance-oriented implementations that reduce latency and resource consumption.
 - Commit the changes with a conventional commit message.

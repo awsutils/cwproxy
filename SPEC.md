@@ -4,6 +4,10 @@
 
 It also publishes high-frequency CloudWatch Metrics for endpoint health, request counts, latency, payload size, and HTTP status codes.
 
+The application must be fail-safe, robust, performance-optimized, and efficient by default. Every component should handle errors defensively, avoid process crashes whenever recovery is possible, and continue operating safely under unexpected conditions.
+
+Use current, well-supported Go and infrastructure technologies where they provide clear operational value. Prefer designs that reduce latency, CPU usage, memory usage, and overall resource consumption without weakening reliability.
+
 ---
 
 ## Environment Variables
@@ -134,3 +138,5 @@ To reduce CI/CD time, do not build the Go application inside the container Docke
 
 - Always build the Go application on the GitHub Actions runner, not inside Docker.
 - Trigger all distribution workflows on every push. Do not require Git tags.
+- Always design for graceful degradation and safe failure instead of process termination.
+- Optimize for low overhead and sustainable runtime efficiency, especially under sustained traffic.

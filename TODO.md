@@ -2,6 +2,8 @@
 
 ## Implementation Plan
 
+The implementation should treat fail-safe behavior, robustness, crash prevention, performance optimization, and efficient resource usage as baseline requirements.
+
 1. Bootstrap the Go project.
    Create `go.mod`, a `cmd/cwproxy` entrypoint, and `internal` packages for config, proxy, logging, metrics, health, and AWS adapters.
 
@@ -31,6 +33,9 @@
 
 10. Wire in repo hygiene.
     Add `gofmt`, `golangci-lint`, test commands, and keep commits incremental with conventional commit messages.
+
+11. Validate resilience and efficiency explicitly.
+    Review every subsystem for panic prevention, defensive error handling, graceful degradation, bounded memory usage, and low-overhead execution under sustained load.
 
 ## Recommended First Milestone
 
