@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+func entryStructureHash(request Request, response Response) string {
+	return hashStructureSignature(
+		"queries:" + structureSignature(request.Queries) +
+			"|request_body:" + structureSignature(request.Body) +
+			"|response_body:" + structureSignature(response.Body),
+	)
+}
+
 func queryStructureHash(values map[string]any) string {
 	if len(values) == 0 {
 		return ""

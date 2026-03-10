@@ -16,12 +16,13 @@ import (
 )
 
 type Entry struct {
-	Summary  string             `json:"_q"`
-	AppName  string             `json:"app_name"`
-	Metadata *metadata.Snapshot `json:"aws_meta,omitempty"`
-	Delay    Duration           `json:"delay"`
-	Request  Request            `json:"request"`
-	Response Response           `json:"response"`
+	Summary    string             `json:"_q"`
+	AppName    string             `json:"app_name"`
+	Metadata   *metadata.Snapshot `json:"aws_meta,omitempty"`
+	GlobalHash string             `json:"global_hash"`
+	Delay      Duration           `json:"delay"`
+	Request    Request            `json:"request"`
+	Response   Response           `json:"response"`
 }
 
 type Duration float64
@@ -172,6 +173,9 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 func ensureEntry(entry Entry) Entry {
 	entry.Request = ensureRequest(entry.Request)
 	entry.Response = ensureResponse(entry.Response)
+	if entry.GlobalHash == "" {
+		entry.GlobalHash = entryStructureHash(entry.Request, entry.Response)
+	}
 	return entry
 }
 

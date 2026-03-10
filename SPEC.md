@@ -4,7 +4,7 @@
 
 When available, logs must include auto-detected AWS runtime metadata for EC2, ECS, and EKS.
 
-Logs must also include stable structural hashes for request queries, request bodies, and response bodies.
+Logs must also include stable structural hashes for request queries, request bodies, and response bodies, plus a combined top-level hash for the request/response structure as a whole.
 
 The application must be fail-safe, robust, performance-optimized, and efficient by default. Every component should handle errors defensively, avoid process crashes whenever recovery is possible, and continue operating safely under unexpected conditions.
 
@@ -98,6 +98,7 @@ Example stdout log entry:
       "pod_name": "cwproxy-123"
     }
   },
+  "global_hash": "0123456789abcdef0123456789abcdef",
   "delay": 123.456,
   "request": {
     "time": 1700000000000,
@@ -134,6 +135,7 @@ Example stdout log entry:
 - `aws_meta`: optional AWS runtime metadata with any detected EC2, ECS, and EKS details
 - `queries_hash`: stable hash of the request query structure
 - `request.body_hash` and `response.body_hash`: stable hashes of body structure based on keys and container shape only, ignoring scalar values
+- `global_hash`: stable combined hash derived from `request.queries`, `request.body`, and `response.body`
 
 ---
 

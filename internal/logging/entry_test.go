@@ -43,7 +43,16 @@ func TestMarshalProducesStableJSON(t *testing.T) {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 
-	want := fmt.Sprintf(`{"_q":"cwproxy POST /api/foo 200 123.000ms","app_name":"cwproxy","delay":123.000,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"queries_hash":"%s","cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"},"body_hash":"%s"},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"},"body_hash":"%s"}}`,
+	want := fmt.Sprintf(`{"_q":"cwproxy POST /api/foo 200 123.000ms","app_name":"cwproxy","global_hash":"%s","delay":123.000,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"queries_hash":"%s","cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"},"body_hash":"%s"},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"},"body_hash":"%s"}}`,
+		entryStructureHash(
+			Request{
+				Queries: map[string]any{"key": "value"},
+				Body:    map[string]any{"field": "value"},
+			},
+			Response{
+				Body: map[string]any{"result": "ok"},
+			},
+		),
 		queryStructureHash(map[string]any{"key": "value"}),
 		bodyStructureHash(map[string]any{"field": "value"}),
 		bodyStructureHash(map[string]any{"result": "ok"}),
@@ -154,7 +163,14 @@ func TestMarshalForCloudWatchInsertsNewlineAfterSummary(t *testing.T) {
 		t.Fatalf("MarshalForCloudWatch returned error: %v", err)
 	}
 
-	want := "{\"_q\":\"cwproxy GET /health 200 1.500ms\",\n\"app_name\":\"cwproxy\",\"delay\":1.500,\"request\":{\"time\":0,\"host\":\"\",\"port\":0,\"path\":\"/health\",\"method\":\"GET\",\"url\":\"\",\"queries\":{},\"cookies\":{},\"headers\":{},\"body\":null},\"response\":{\"time\":0,\"status\":200,\"headers\":{},\"set_cookies\":{},\"body\":null}}"
+	want := fmt.Sprintf("{\"_q\":\"cwproxy GET /health 200 1.500ms\",\n\"app_name\":\"cwproxy\",\"global_hash\":\"%s\",\"delay\":1.500,\"request\":{\"time\":0,\"host\":\"\",\"port\":0,\"path\":\"/health\",\"method\":\"GET\",\"url\":\"\",\"queries\":{},\"cookies\":{},\"headers\":{},\"body\":null},\"response\":{\"time\":0,\"status\":200,\"headers\":{},\"set_cookies\":{},\"body\":null}}",
+		entryStructureHash(
+			Request{
+				Queries: map[string]any{},
+			},
+			Response{},
+		),
+	)
 	if string(body) != want {
 		t.Fatalf("MarshalForCloudWatch() = %s, want %s", body, want)
 	}
@@ -190,7 +206,14 @@ func TestMarshalIncludesAWSMetadata(t *testing.T) {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 
-	want := `{"_q":"cwproxy GET /health 200 1.000ms","app_name":"cwproxy","aws_meta":{"ec2":{"instance_id":"i-123","region":"ap-northeast-2"},"eks":{"cluster_name":"demo-eks","pod_name":"cwproxy-123"}},"delay":1.000,"request":{"time":0,"host":"","port":0,"path":"/health","method":"GET","url":"","queries":{},"cookies":{},"headers":{},"body":null},"response":{"time":0,"status":200,"headers":{},"set_cookies":{},"body":null}}`
+	want := fmt.Sprintf(`{"_q":"cwproxy GET /health 200 1.000ms","app_name":"cwproxy","aws_meta":{"ec2":{"instance_id":"i-123","region":"ap-northeast-2"},"eks":{"cluster_name":"demo-eks","pod_name":"cwproxy-123"}},"global_hash":"%s","delay":1.000,"request":{"time":0,"host":"","port":0,"path":"/health","method":"GET","url":"","queries":{},"cookies":{},"headers":{},"body":null},"response":{"time":0,"status":200,"headers":{},"set_cookies":{},"body":null}}`,
+		entryStructureHash(
+			Request{
+				Queries: map[string]any{},
+			},
+			Response{},
+		),
+	)
 	if string(body) != want {
 		t.Fatalf("Marshal() = %s, want %s", body, want)
 	}
@@ -251,5 +274,73 @@ func TestQueryStructureHashIgnoresValues(t *testing.T) {
 	}
 	if first == third {
 		t.Fatalf("query hash did not change when keys changed: %q", first)
+	}
+}
+
+func TestEntryStructureHashTracksCombinedRequestAndResponseChanges(t *testing.T) {
+	t.Parallel()
+
+	first := entryStructureHash(
+		Request{
+			Queries: map[string]any{
+				"alpha": "1",
+			},
+			Body: map[string]any{
+				"user": map[string]any{
+					"id":   1,
+					"name": "alice",
+				},
+			},
+		},
+		Response{
+			Body: map[string]any{
+				"result": "ok",
+			},
+		},
+	)
+	second := entryStructureHash(
+		Request{
+			Queries: map[string]any{
+				"alpha": "999",
+			},
+			Body: map[string]any{
+				"user": map[string]any{
+					"id":   2,
+					"name": "bob",
+				},
+			},
+		},
+		Response{
+			Body: map[string]any{
+				"result": "changed",
+			},
+		},
+	)
+	third := entryStructureHash(
+		Request{
+			Queries: map[string]any{
+				"beta": "1",
+			},
+			Body: map[string]any{
+				"user": map[string]any{
+					"id": 1,
+				},
+			},
+		},
+		Response{
+			Body: map[string]any{
+				"result": "ok",
+			},
+		},
+	)
+
+	if first == "" {
+		t.Fatal("expected combined hash to be populated")
+	}
+	if first != second {
+		t.Fatalf("combined hash changed when only values changed: %q != %q", first, second)
+	}
+	if first == third {
+		t.Fatalf("combined hash did not change when request structure changed: %q", first)
 	}
 }
