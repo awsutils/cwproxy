@@ -58,7 +58,7 @@ The demo app exposes:
 Start the demo app:
 
 ```powershell
-$script = @'
+@'
 const http = require("http");
 
 const server = http.createServer(async (req, res) => {
@@ -89,9 +89,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(18080, "127.0.0.1", () => {
   console.log("demo app listening on 127.0.0.1:18080");
 });
-'@
-
-node -e $script
+'@ | node -
 ```
 
 In another PowerShell window, build and run the proxy:
