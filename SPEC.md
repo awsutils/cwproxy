@@ -1,8 +1,6 @@
 ## Introduction
 
-`cwproxy` is an HTTP reverse proxy written in Go. It writes combined log entries to both stdout and CloudWatch Logs.
-
-It also publishes high-frequency CloudWatch Metrics for endpoint health, request counts, latency, payload size, and HTTP status codes.
+`cwproxy` is an HTTP reverse proxy written in Go. It forwards traffic to a local application, writes structured access logs to stdout and CloudWatch Logs, and emits CloudWatch metrics through Embedded Metric Format (EMF).
 
 The application must be fail-safe, robust, performance-optimized, and efficient by default. Every component should handle errors defensively, avoid process crashes whenever recovery is possible, and continue operating safely under unexpected conditions.
 
@@ -20,7 +18,7 @@ Use current, well-supported Go and infrastructure technologies where they provid
 ### `APP_NAME`
 
 - Default: system hostname
-- Application identifier used in CloudWatch Logs and CloudWatch Metrics.
+- Application identifier used in log output and metric dimensions.
 
 ### `APP_PORT`
 
@@ -51,18 +49,29 @@ Examples:
 - Default: `/app/log/{APP_NAME}`
 - CloudWatch Logs group name used for log delivery.
 
+### `AWS_REGION` / `AWS_DEFAULT_REGION`
+
+- Default: unset
+- Enables CloudWatch delivery when one of these variables is present.
+- Shared AWS credentials may still be loaded from standard AWS config files, but region selection must be available in the environment for CloudWatch integration to start.
+
 ---
 
 ## Log Format
 
-Logs are emitted after each request/response pair is matched. Every entry is written to both stdout and CloudWatch Logs as minified JSON with a stable field order.
+Logs are emitted after each request/response pair is matched.
+
+- Stdout log entries are minified single-line JSON with a stable field order.
+- CloudWatch request log entries use the same JSON payload, but insert a newline immediately after `_q` to improve readability in the CloudWatch console.
+- CloudWatch traffic log entries may also include EMF metric fields and an `_aws` envelope in the same event.
+
+Example stdout log entry:
 
 ```json
 {
-  "_q": "{APP_NAME} {direction} {path} {status} {delay}ms",
+  "_q": "{APP_NAME} {method} {path} {status} {delay}ms",
   "app_name": "{APP_NAME}",
-  "direction": "INGRESS | EGRESS",
-  "delay": 123,
+  "delay": 123.456,
   "request": {
     "time": 1700000000000,
     "host": "example.com",
@@ -86,26 +95,57 @@ Logs are emitted after each request/response pair is matched. Every entry is wri
 ```
 
 - `_q`: human-readable summary for quick filtering
-- `delay`: elapsed time in milliseconds between the request and response
+- `_q` format: `{APP_NAME} {METHOD} {PATH} {STATUS} {DELAY}ms`
+- If the request method is unavailable, `_q` must use `UNKNOWN`
+- `delay`: elapsed time in milliseconds as a JSON number with exactly three decimal places
 - `request.time` and `response.time`: Unix timestamps in milliseconds
 - `body`: parsed as an object when `Content-Type` is `application/json` or `application/x-www-form-urlencoded`; otherwise stored as a raw string
+- Truncated request or response bodies must be marked with `...(truncated)` instead of causing unbounded memory growth
 
 ---
 
 ## Metrics
 
-All metrics are published to CloudWatch Metrics under the namespace `sniff2cw/{APP_NAME}` and include at least the `Endpoint` dimension.
+All CloudWatch metrics are emitted through EMF in CloudWatch Logs.
+
+### Traffic Metrics
+
+- Namespace: `app/traffic`
+- Dimension sets:
+  - `{AppName}`
+  - `{AppName, Endpoint, Method}`
+
+| Metric | Unit | Description |
+| --- | --- | --- |
+| `RequestCount` | Count | Total number of proxied HTTP requests |
+| `Latency` | Milliseconds | End-to-end request/response delay |
+| `RequestBodySize` | Bytes | Size of the captured request body |
+| `ResponseBodySize` | Bytes | Size of the captured response body |
+| `2XXStatusCode` | Count | Count of responses with status `200-299` |
+| `4XXStatusCode` | Count | Count of responses with status `400-499` |
+| `5XXStatusCode` | Count | Count of responses with status `500-599` |
+
+Rules:
+
+- `RequestCount`, `Latency`, `RequestBodySize`, and `ResponseBodySize` must be emitted for both traffic dimension sets.
+- Exactly one of `2XXStatusCode`, `4XXStatusCode`, or `5XXStatusCode` must be emitted for both traffic dimension sets when the response falls into one of those ranges.
+- Traffic request logs and traffic metrics must be emitted together in the same CloudWatch Logs event when possible.
+
+### Health Metrics
+
+- Namespace: `app/health`
+- Dimension set:
+  - `{AppName, Endpoint}`
 
 | Metric | Unit | Description |
 | --- | --- | --- |
 | `HealthStatus` | Count (`1` = up, `0` = down) | Health check result for each endpoint |
 | `HealthLatency` | Milliseconds | Health check response time for each endpoint |
-| `RequestCount` | Count | Total number of HTTP requests |
-| `ErrorCount` | Count | Number of responses with status >= `400` |
-| `Latency` | Milliseconds | End-to-end request/response delay |
-| `RequestBodySize` | Bytes | Size of the request body |
-| `ResponseBodySize` | Bytes | Size of the response body |
-| `StatusCode` | Count | Request count grouped by HTTP status code |
+
+Rules:
+
+- `HealthStatus` and `HealthLatency` must always use the `{AppName, Endpoint}` dimension set.
+- Health metrics are emitted as EMF metric-only CloudWatch Logs events.
 
 ---
 
@@ -123,6 +163,8 @@ The application must be distributed for the following platforms:
 
 Provide a GitHub Actions workflow that builds these binaries and publishes them through GitHub Pages.
 
+All distribution binaries must be built with `CGO_ENABLED=0`.
+
 ### Container Image Distribution
 
 The container image must support the following platforms:
@@ -133,6 +175,8 @@ The container image must support the following platforms:
 Provide a GitHub Actions workflow that publishes the container image to `ghcr.io/awsutils/cwproxy`.
 
 To reduce CI/CD time, do not build the Go application inside the container Dockerfile. Instead, build the binaries in GitHub Actions first and copy the built artifacts into the container image.
+
+All container-distribution Go builds must use `CGO_ENABLED=0`.
 
 ### Considerations
 
