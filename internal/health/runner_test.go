@@ -68,7 +68,9 @@ func TestProbeAllPublishesSuccessAndFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse failed URL: %v", err)
 	}
-	listener.Close()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
 
 	successURL, err := url.Parse(successServer.URL + "/health")
 	if err != nil {

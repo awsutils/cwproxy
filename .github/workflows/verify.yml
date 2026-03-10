@@ -32,10 +32,9 @@ jobs:
       - name: Run performance delay check
         run: go test -run TestReverseProxyDelayBudget -v ./internal/proxy
 
-      - name: Set up golangci-lint
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: v1.64.8
-
       - name: Run golangci-lint
-        run: golangci-lint run ./...
+        uses: golangci/golangci-lint-action@v9.2.0
+        timeout-minutes: 5
+        with:
+          version: v2.11.2
+          args: ./...

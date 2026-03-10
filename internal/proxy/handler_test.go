@@ -190,7 +190,9 @@ func TestHandlerReturnsBadGatewayAndTracksErrors(t *testing.T) {
 		t.Fatalf("Listen returned error: %v", err)
 	}
 	address := listener.Addr().String()
-	listener.Close()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
 
 	targetURL, err := url.Parse("http://" + address)
 	if err != nil {

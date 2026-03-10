@@ -278,7 +278,9 @@ func readJSON(ctx context.Context, client *http.Client, endpoint string, target 
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() {
+		_ = response.Body.Close()
+	}()
 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return errors.New(response.Status)
