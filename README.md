@@ -229,7 +229,9 @@ Published image:
 The container image:
 
 - is built for `linux/amd64` and `linux/arm64`
-- uses a distroless static base image
+- uses an Alpine base image
+- installs CA certificates for HTTPS health checks and CloudWatch delivery
+- runs as a non-root user
 - copies prebuilt Linux binaries into the image
 - does not compile Go code inside Docker
 
