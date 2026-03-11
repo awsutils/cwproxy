@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist site/downloads
+          mkdir -p dist site
 
           targets=(
             "linux amd64"
@@ -52,7 +52,7 @@ jobs:
             GOOS="$goos" GOARCH="$goarch" \
               go build -trimpath -ldflags="-s -w" -o "$output_bin" ./cmd/cwproxy
 
-            release_bin="site/downloads/cwproxy-${goos}-${goarch}${ext}"
+            release_bin="site/cwproxy-${goos}-${goarch}${ext}"
             cp "$output_bin" "$release_bin"
             if [ "$goos" != "windows" ]; then
               chmod 0755 "$release_bin"
@@ -62,7 +62,7 @@ jobs:
           done
 
           (
-            cd site/downloads
+            cd site
             sha256sum * > SHA256SUMS
           )
 
@@ -72,7 +72,7 @@ jobs:
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>cwproxy downloads</title>
+            <title>cwproxy binaries</title>
             <style>
               :root {
                 color-scheme: light;
@@ -125,13 +125,16 @@ jobs:
               <ul>
           EOF
 
-          for file in $(cd site/downloads && ls | sort); do
-            printf '                <li><a href="downloads/%s">%s</a></li>\n' "$file" "$file" >> site/index.html
+          for file in $(cd site && ls | sort); do
+            if [ "$file" = "index.html" ]; then
+              continue
+            fi
+            printf '                <li><a href="%s">%s</a></li>\n' "$file" "$file" >> site/index.html
           done
 
           cat >> site/index.html <<'EOF'
               </ul>
-              <p>Checksums are published in <code>downloads/SHA256SUMS</code>. Raw binaries are published directly without archive compression.</p>
+              <p>Checksums are published in <code>SHA256SUMS</code>. Raw binaries are published directly at the site root without archive compression.</p>
             </main>
           </body>
           </html>

@@ -257,6 +257,8 @@ Provide a GitHub Actions workflow that builds these binaries and publishes them 
 
 Raw binaries must be published directly. Do not wrap binary artifacts in `.zip` or `.tar.gz` archives.
 
+Publish the built binaries directly at the GitHub Pages site root rather than under a nested downloads directory.
+
 All distribution binaries must be built with `CGO_ENABLED=0`.
 
 ### Container Image Distribution

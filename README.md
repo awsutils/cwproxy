@@ -221,6 +221,7 @@ Release artifacts:
 - GitHub Actions builds static binaries on every push
 - platforms: `linux/amd64`, `linux/arm64`, `windows/amd64`, `darwin/amd64`, `darwin/arm64`
 - raw binaries are published through GitHub Pages without archive compression
+- published files are placed directly at the GitHub Pages site root, alongside `SHA256SUMS`
 
 Inspector-mode binary examples:
 
