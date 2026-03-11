@@ -12,6 +12,56 @@ Use current, well-supported Go and infrastructure technologies where they provid
 
 ---
 
+## Execution Modes
+
+The application must support two runtime modes.
+
+### Normal Mode
+
+Normal mode is used when `cwproxy` is started without a target application command.
+
+In normal mode:
+
+- `cwproxy` must proxy traffic to the configured upstream application port using `APP_PORT`.
+- The upstream target remains the local application running behind the proxy.
+
+### Inspector Mode
+
+Inspector mode is used when `cwproxy` is started with a target application command after the `cwproxy` executable name.
+
+Examples:
+
+```bash
+./cwproxy {cmd} {...args}
+./cwproxy webapp --port 8080
+```
+
+In inspector mode:
+
+- `cwproxy` must start the provided target application as a child process.
+- `cwproxy` must pass the provided command-line arguments through to the target application unchanged.
+- `cwproxy` must run the target application with environment variables available to the `cwproxy` process.
+- After the target application is started, `cwproxy` must determine which local TCP port the child process is listening on and then proxy that port using the same request, log, metric, and health behavior as normal mode.
+
+Port selection rules in inspector mode:
+
+- If `APP_PORT` is explicitly configured, `APP_PORT` must override automatic port detection.
+- If `APP_PORT` is not explicitly configured, `cwproxy` must automatically detect the child process `LISTEN` port.
+- Automatic port detection must work on Linux, macOS, and Windows.
+- Automatic port detection may use OS-specific socket inspection mechanisms equivalent to tools such as `ss`, `lsof`, `netstat`, or native platform APIs.
+- Because some applications do not begin listening immediately, `cwproxy` must poll for the child process `LISTEN` port repeatedly at high frequency until at least one listening port is found.
+- The polling interval for automatic port detection must be approximately `100ms`.
+- If the child process opens multiple listening ports, `cwproxy` must choose the lowest port number.
+
+Child-process lifecycle rules in inspector mode:
+
+- `cwproxy` must forward received interrupt or termination signals to the child process as well.
+- Signal forwarding requirements include signals such as `SIGTERM`.
+- If the child process exits, `cwproxy` must flush any remaining logs and metrics before exiting.
+- After flushing remaining telemetry, `cwproxy` must exit with the same exit code as the child process.
+
+---
+
 ## Environment Variables
 
 ### `PROXY_PORT`
@@ -28,6 +78,7 @@ Use current, well-supported Go and infrastructure technologies where they provid
 
 - Default: `8080`
 - Port used by the target application behind the reverse proxy.
+- In inspector mode, an explicitly configured `APP_PORT` must override automatic child-process listen-port detection.
 
 ### `HEALTH_URLS`
 
