@@ -62,31 +62,6 @@ func (s *captureMetricSink) Close(context.Context) error {
 	return nil
 }
 
-type captureHealthMetricSink struct {
-	mu      sync.Mutex
-	entries []logging.Entry
-	metrics [][]metrics.Datum
-}
-
-func (s *captureHealthMetricSink) Log(_ context.Context, entry logging.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.entries = append(s.entries, entry)
-	return nil
-}
-
-func (s *captureHealthMetricSink) LogHealthWithMetrics(_ context.Context, entry logging.Entry, data []metrics.Datum) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.entries = append(s.entries, entry)
-	s.metrics = append(s.metrics, append([]metrics.Datum(nil), data...))
-	return nil
-}
-
-func (s *captureHealthMetricSink) Close(context.Context) error {
-	return nil
-}
-
 type metricCapture struct {
 	mu   sync.Mutex
 	data []metrics.Datum
@@ -364,7 +339,7 @@ func TestHandlerUsesMetricAwareSinkForCombinedEmission(t *testing.T) {
 	}
 }
 
-func TestHandlerRoutesHealthPathsToHealthTelemetry(t *testing.T) {
+func TestHandlerSuppressesTelemetryForConfiguredHealthPaths(t *testing.T) {
 	t.Parallel()
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -379,14 +354,12 @@ func TestHandlerRoutesHealthPathsToHealthTelemetry(t *testing.T) {
 	}
 
 	sink := &captureMetricSink{}
-	healthSink := &captureHealthMetricSink{}
 	publisher := &metricCapture{}
 	handler := New(targetURL, sink, publisher, Options{
 		AppName: "cwproxy",
 		HealthPaths: map[string]struct{}{
 			"/health": {},
 		},
-		HealthSink: healthSink,
 	})
 
 	request := httptest.NewRequest(http.MethodGet, "http://example.com/health?probe=1", nil)
@@ -398,34 +371,16 @@ func TestHandlerRoutesHealthPathsToHealthTelemetry(t *testing.T) {
 	}
 
 	sink.mu.Lock()
+	defer sink.mu.Unlock()
 	if len(sink.entries) != 0 || len(sink.metrics) != 0 {
 		t.Fatalf("health path unexpectedly emitted traffic telemetry: entries=%d metrics=%d", len(sink.entries), len(sink.metrics))
 	}
-	sink.mu.Unlock()
-
-	healthSink.mu.Lock()
-	defer healthSink.mu.Unlock()
-	if len(healthSink.entries) != 1 {
-		t.Fatalf("health entry count = %d, want 1", len(healthSink.entries))
-	}
-	if healthSink.entries[0].Type != logging.CategoryHealth {
-		t.Fatalf("health entry type = %q, want %q", healthSink.entries[0].Type, logging.CategoryHealth)
-	}
-	if len(healthSink.metrics) != 1 || len(healthSink.metrics[0]) != 2 {
-		t.Fatalf("health metrics = %#v", healthSink.metrics)
-	}
-	if !containsMetric(healthSink.metrics[0], "HealthStatus", map[string]string{
-		"AppName":  "cwproxy",
-		"Endpoint": "example.com:80/health?probe=1",
-	}) {
-		t.Fatalf("health status metric missing: %#v", healthSink.metrics[0])
-	}
 
 	publisher.mu.Lock()
+	defer publisher.mu.Unlock()
 	if len(publisher.data) != 0 {
 		t.Fatalf("traffic publisher unexpectedly used: %#v", publisher.data)
 	}
-	publisher.mu.Unlock()
 }
 
 func TestHandlerSetsForwardedHeadersAndPreservesForwardedForChain(t *testing.T) {

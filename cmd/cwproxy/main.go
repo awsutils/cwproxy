@@ -136,8 +136,6 @@ func run() error {
 		AppName:         cfg.AppName,
 		Metadata:        runtimeMetadata,
 		HealthPaths:     healthPathSet(cfg.HealthURLs),
-		HealthSink:      healthSink,
-		HealthPublisher: healthMetricPublisher,
 		MaxCaptureBytes: cfg.CaptureBodyLimit,
 		Reporter:        reporter.Printf,
 	})

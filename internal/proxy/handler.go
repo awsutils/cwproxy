@@ -24,8 +24,6 @@ type Options struct {
 	AppName         string
 	Metadata        *metadata.Snapshot
 	HealthPaths     map[string]struct{}
-	HealthSink      logging.Sink
-	HealthPublisher metrics.Publisher
 	MaxCaptureBytes int
 	Reporter        func(string, ...any)
 	Now             func() time.Time
@@ -38,8 +36,6 @@ type Handler struct {
 	targetURL       *url.URL
 	sink            logging.Sink
 	publisher       metrics.Publisher
-	healthSink      logging.Sink
-	healthPublisher metrics.Publisher
 	reporter        func(string, ...any)
 	healthPaths     map[string]struct{}
 	maxCaptureBytes int
@@ -92,8 +88,6 @@ func New(targetURL *url.URL, sink logging.Sink, publisher metrics.Publisher, opt
 		targetURL:       cloneURL(targetURL),
 		sink:            sink,
 		publisher:       publisher,
-		healthSink:      options.HealthSink,
-		healthPublisher: options.HealthPublisher,
 		reporter:        reporter,
 		healthPaths:     clonePathSet(options.HealthPaths),
 		maxCaptureBytes: options.MaxCaptureBytes,
@@ -104,12 +98,6 @@ func New(targetURL *url.URL, sink logging.Sink, publisher metrics.Publisher, opt
 	}
 	if handler.publisher == nil {
 		handler.publisher = metrics.NopPublisher{}
-	}
-	if handler.healthSink == nil {
-		handler.healthSink = logging.NopSink{}
-	}
-	if handler.healthPublisher == nil {
-		handler.healthPublisher = metrics.NopPublisher{}
 	}
 
 	handler.proxy = &httputil.ReverseProxy{
@@ -202,42 +190,39 @@ func (h *Handler) finalize(request *http.Request, recorder *responseRecorder, st
 	if state.responseCapture != nil {
 		responseSize = state.responseCapture.Total()
 	}
+	if h.isHealthPath(path) {
+		return
+	}
 
 	responseHeaders := state.responseHeaders
 	if responseHeaders == nil {
 		responseHeaders = recorder.Header().Clone()
 	}
 
-	requestLog := logging.Request{
-		Time:    state.start.UnixMilli(),
-		Host:    host,
-		Port:    port,
-		Path:    path,
-		Method:  request.Method,
-		URL:     net.JoinHostPort(host, strconv.Itoa(port)) + requestURI,
-		Queries: logging.NormalizeValues(request.URL.Query()),
-		Cookies: logging.NormalizeCookies(request.Cookies()),
-		Headers: logging.NormalizeHeaders(request.Header),
-		Body:    logging.ParseBody(request.Header.Get("Content-Type"), requestBody, requestBodyTruncated),
-	}
-	responseLog := logging.Response{
-		Time:       end.UnixMilli(),
-		Status:     status,
-		Headers:    logging.NormalizeHeaders(responseHeaders, "Set-Cookie"),
-		SetCookies: logging.NormalizeCookies(state.responseCookies),
-		Body:       logging.ParseBody(responseHeaders.Get("Content-Type"), responseBody, responseBodyTruncated),
-	}
-
-	if h.isHealthPath(path) {
-		entry := logging.NewHealthEntry(h.appName, requestLog, responseLog, end.Sub(state.start))
-		entry.Metadata = h.metadata
-		data := buildHealthMetrics(h.appName, requestLog.URL, status, end.Sub(state.start))
-		h.emitHealth(entry, data)
-		return
-	}
-
 	metricData := buildMetrics(h.appName, path, request.Method, status, end.Sub(state.start), state.requestCapture.Total(), responseSize)
-	entry := logging.NewEntry(h.appName, requestLog, responseLog, end.Sub(state.start))
+	entry := logging.NewEntry(
+		h.appName,
+		logging.Request{
+			Time:    state.start.UnixMilli(),
+			Host:    host,
+			Port:    port,
+			Path:    path,
+			Method:  request.Method,
+			URL:     net.JoinHostPort(host, strconv.Itoa(port)) + requestURI,
+			Queries: logging.NormalizeValues(request.URL.Query()),
+			Cookies: logging.NormalizeCookies(request.Cookies()),
+			Headers: logging.NormalizeHeaders(request.Header),
+			Body:    logging.ParseBody(request.Header.Get("Content-Type"), requestBody, requestBodyTruncated),
+		},
+		logging.Response{
+			Time:       end.UnixMilli(),
+			Status:     status,
+			Headers:    logging.NormalizeHeaders(responseHeaders, "Set-Cookie"),
+			SetCookies: logging.NormalizeCookies(state.responseCookies),
+			Body:       logging.ParseBody(responseHeaders.Get("Content-Type"), responseBody, responseBodyTruncated),
+		},
+		end.Sub(state.start),
+	)
 	entry.Metadata = h.metadata
 	h.emitTraffic(entry, metricData)
 }
@@ -326,32 +311,6 @@ func cloneDimensions(values map[string]string) map[string]string {
 	return cloned
 }
 
-func buildHealthMetrics(appName, endpoint string, status int, latency time.Duration) []metrics.Datum {
-	up := 0.0
-	if status >= 200 && status < 400 {
-		up = 1
-	}
-
-	dimensions := map[string]string{
-		"AppName":  appName,
-		"Endpoint": endpoint,
-	}
-	return []metrics.Datum{
-		{
-			Name:       "HealthStatus",
-			Value:      up,
-			Unit:       metrics.UnitCount,
-			Dimensions: cloneDimensions(dimensions),
-		},
-		{
-			Name:       "HealthLatency",
-			Value:      float64(latency) / float64(time.Millisecond),
-			Unit:       metrics.UnitMilliseconds,
-			Dimensions: cloneDimensions(dimensions),
-		},
-	}
-}
-
 func getExchangeState(ctx context.Context) *exchangeState {
 	state, _ := ctx.Value(stateKey{}).(*exchangeState)
 	return state
@@ -422,22 +381,6 @@ func (h *Handler) emitTraffic(entry logging.Entry, data []metrics.Datum) {
 	}
 	if err := h.publisher.Publish(context.Background(), data); err != nil && h.reporter != nil {
 		h.reporter("failed to publish proxy metrics: %v", err)
-	}
-}
-
-func (h *Handler) emitHealth(entry logging.Entry, data []metrics.Datum) {
-	if metricSink, ok := h.healthSink.(logging.HealthMetricSink); ok {
-		if err := metricSink.LogHealthWithMetrics(context.Background(), entry, data); err != nil && h.reporter != nil {
-			h.reporter("failed to write health log entry: %v", err)
-		}
-		return
-	}
-
-	if err := h.healthSink.Log(context.Background(), entry); err != nil && h.reporter != nil {
-		h.reporter("failed to write health log entry: %v", err)
-	}
-	if err := h.healthPublisher.Publish(context.Background(), data); err != nil && h.reporter != nil {
-		h.reporter("failed to publish health metrics: %v", err)
 	}
 }
 

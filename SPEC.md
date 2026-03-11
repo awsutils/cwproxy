@@ -130,7 +130,7 @@ Logs are emitted after each request/response pair is matched.
 - Stdout traffic and health log entries must also carry EMF fields when metrics are emitted with the log event.
 - CloudWatch request log entries use the same JSON payload, but insert a newline immediately after `_q` to improve readability in the CloudWatch console.
 - CloudWatch traffic log entries may also include EMF metric fields and an `_aws` envelope in the same event.
-- Requests whose proxied path matches any resolved `HEALTH_URLS` path must not emit traffic-category telemetry. Those requests must instead be emitted through the health-category log and metric path.
+- Requests coming through the reverse proxy whose path matches any resolved `HEALTH_URLS` path must not emit proxy traffic telemetry and must not be remapped into health-category telemetry. Only the internal health runner may emit health-category log and metric events.
 - Health EMF events are written to `HEALTH_LOG_GROUP_NAME`, not `LOG_GROUP_NAME`.
 - Health log entries must include the health probe response body when one is available.
 
@@ -186,7 +186,7 @@ Example stdout log entry:
 - `_q`: human-readable summary for quick filtering
 - `_q` format: `{APP_NAME} {METHOD} {PATH} {STATUS} {DELAY}ms`
 - If the request method is unavailable, `_q` must use `UNKNOWN`
-- `_t`: log category discriminator. It must be `TRAFFIC` for normal proxied request logs and `HEALTH` for health probe logs or proxied requests whose path matches `HEALTH_URLS`
+- `_t`: log category discriminator. It must be `TRAFFIC` for normal proxied request logs and `HEALTH` for health probe logs emitted by the internal health runner
 - `delay`: elapsed time in milliseconds as a JSON number with exactly three decimal places
 - `request.time` and `response.time`: Unix timestamps in milliseconds
 - `body`: parsed as an object when `Content-Type` is `application/json` or `application/x-www-form-urlencoded`; otherwise stored as a raw string
