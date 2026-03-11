@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net"
@@ -335,6 +336,71 @@ func TestHandlerUsesMetricAwareSinkForCombinedEmission(t *testing.T) {
 	defer publisher.mu.Unlock()
 	if len(publisher.data) != 0 {
 		t.Fatalf("fallback publisher unexpectedly used: %#v", publisher.data)
+	}
+}
+
+func TestHandlerSetsForwardedHeadersAndPreservesForwardedForChain(t *testing.T) {
+	t.Parallel()
+
+	type forwardedSnapshot struct {
+		forwardedFor   string
+		forwardedHost  string
+		forwardedProto string
+		host           string
+	}
+
+	snapshots := make(chan forwardedSnapshot, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		snapshots <- forwardedSnapshot{
+			forwardedFor:   request.Header.Get("X-Forwarded-For"),
+			forwardedHost:  request.Header.Get("X-Forwarded-Host"),
+			forwardedProto: request.Header.Get("X-Forwarded-Proto"),
+			host:           request.Host,
+		}
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+
+	targetURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("Parse upstream URL: %v", err)
+	}
+
+	handler := New(targetURL, &captureSink{}, &metricCapture{}, Options{
+		AppName: "cwproxy",
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "https://service.internal/forwarded", nil)
+	request.RemoteAddr = "203.0.113.9:4567"
+	request.Header.Add("X-Forwarded-For", "198.51.100.10")
+	request.TLS = &tls.ConnectionState{}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response code = %d, want 200", recorder.Code)
+	}
+
+	var snapshot forwardedSnapshot
+	select {
+	case snapshot = <-snapshots:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upstream request")
+	}
+
+	if snapshot.forwardedFor != "198.51.100.10, 203.0.113.9" {
+		t.Fatalf("X-Forwarded-For = %q, want %q", snapshot.forwardedFor, "198.51.100.10, 203.0.113.9")
+	}
+	if snapshot.forwardedHost != "service.internal" {
+		t.Fatalf("X-Forwarded-Host = %q, want service.internal", snapshot.forwardedHost)
+	}
+	if snapshot.forwardedProto != "https" {
+		t.Fatalf("X-Forwarded-Proto = %q, want https", snapshot.forwardedProto)
+	}
+	if snapshot.host != "service.internal" {
+		t.Fatalf("Host = %q, want service.internal", snapshot.host)
 	}
 }
 

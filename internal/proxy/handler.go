@@ -100,6 +100,7 @@ func New(targetURL *url.URL, sink logging.Sink, publisher metrics.Publisher, opt
 	handler.proxy = &httputil.ReverseProxy{
 		Rewrite: func(request *httputil.ProxyRequest) {
 			request.SetURL(handler.targetURL)
+			preserveInboundForwardedFor(request)
 			request.SetXForwarded()
 			request.Out.Host = request.In.Host
 		},
@@ -328,6 +329,22 @@ func cloneURL(target *url.URL) *url.URL {
 	}
 	cloned := *target
 	return &cloned
+}
+
+func preserveInboundForwardedFor(request *httputil.ProxyRequest) {
+	if request == nil || request.In == nil || request.Out == nil {
+		return
+	}
+
+	values := request.In.Header.Values("X-Forwarded-For")
+	if len(values) == 0 {
+		return
+	}
+
+	request.Out.Header.Del("X-Forwarded-For")
+	for _, value := range values {
+		request.Out.Header.Add("X-Forwarded-For", value)
+	}
 }
 
 func splitHostPort(hostport string, tlsEnabled bool) (string, int) {
