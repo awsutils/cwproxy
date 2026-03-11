@@ -339,6 +339,53 @@ func TestHandlerUsesMetricAwareSinkForCombinedEmission(t *testing.T) {
 	}
 }
 
+func TestHandlerSuppressesTrafficLogsForConfiguredHealthPaths(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+
+	targetURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("Parse upstream URL: %v", err)
+	}
+
+	sink := &captureMetricSink{}
+	publisher := &metricCapture{}
+	handler := New(targetURL, sink, publisher, Options{
+		AppName: "cwproxy",
+		SuppressedPaths: map[string]struct{}{
+			"/health": {},
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "http://example.com/health?probe=1", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response code = %d, want 200", recorder.Code)
+	}
+
+	sink.mu.Lock()
+	if len(sink.entries) != 0 || len(sink.metrics) != 0 {
+		t.Fatalf("suppressed path unexpectedly logged via sink: entries=%d metrics=%d", len(sink.entries), len(sink.metrics))
+	}
+	sink.mu.Unlock()
+
+	publisher.mu.Lock()
+	defer publisher.mu.Unlock()
+	if len(publisher.data) != 10 {
+		t.Fatalf("metric count = %d, want 10", len(publisher.data))
+	}
+	if !containsMetric(publisher.data, "RequestCount", map[string]string{"AppName": "cwproxy"}) {
+		t.Fatalf("aggregate RequestCount metric missing: %#v", publisher.data)
+	}
+}
+
 func TestHandlerSetsForwardedHeadersAndPreservesForwardedForChain(t *testing.T) {
 	t.Parallel()
 

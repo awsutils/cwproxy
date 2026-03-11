@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
@@ -80,7 +81,7 @@ func run() error {
 
 	stdoutSink := cwlogs.NewStdoutSink(os.Stdout)
 	logSink := logging.Sink(stdoutSink)
-	proxyMetricPublisher := metrics.Publisher(metrics.NopPublisher{})
+	proxyMetricPublisher := metrics.Publisher(stdoutSink)
 	healthMetricPublisher := metrics.Publisher(metrics.NopPublisher{})
 	var healthSink logging.Sink = stdoutSink
 
@@ -111,7 +112,7 @@ func run() error {
 				reporter.Printf("failed to initialize CloudWatch traffic sink: %v", trafficSinkErr)
 			} else {
 				logSink = logging.NewMultiSink(stdoutSink, trafficLogSink)
-				proxyMetricPublisher = trafficLogSink
+				proxyMetricPublisher = metrics.NewMultiPublisher(stdoutSink, trafficLogSink)
 				closers = append(closers, trafficLogSink)
 			}
 
@@ -134,6 +135,7 @@ func run() error {
 	handler := proxy.New(cfg.TargetURL, logSink, proxyMetricPublisher, proxy.Options{
 		AppName:         cfg.AppName,
 		Metadata:        runtimeMetadata,
+		SuppressedPaths: healthPathSet(cfg.HealthURLs),
 		MaxCaptureBytes: cfg.CaptureBodyLimit,
 		Reporter:        reporter.Printf,
 	})
@@ -298,6 +300,25 @@ func resolveAWSRegion(snapshot *metadata.Snapshot) (string, string) {
 		return region, "runtime metadata"
 	}
 	return "", ""
+}
+
+func healthPathSet(urls []*url.URL) map[string]struct{} {
+	if len(urls) == 0 {
+		return nil
+	}
+
+	paths := make(map[string]struct{}, len(urls))
+	for _, endpoint := range urls {
+		if endpoint == nil {
+			continue
+		}
+		path := endpoint.Path
+		if path == "" {
+			path = "/"
+		}
+		paths[path] = struct{}{}
+	}
+	return paths
 }
 
 func waitForInspectorPort(ctx context.Context, child *inspector.Child, signals <-chan os.Signal, reporter func(string, ...any)) (int, error) {

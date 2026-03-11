@@ -3,6 +3,7 @@ package cwlogs
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -346,6 +347,42 @@ func buildMetricSummary(appName string, data []metrics.Datum) string {
 		return summary
 	}
 	return appName + " " + summary
+}
+
+func inferMetricCategory(data []metrics.Datum) (string, error) {
+	if len(data) == 0 {
+		return logging.CategoryTraffic, nil
+	}
+
+	allHealth := true
+	anyHealth := false
+	for _, datum := range data {
+		if strings.HasPrefix(datum.Name, "Health") {
+			anyHealth = true
+			continue
+		}
+		allHealth = false
+	}
+
+	if anyHealth && !allHealth {
+		return "", errors.New("cannot mix health and traffic metrics in one EMF event")
+	}
+	if anyHealth {
+		return logging.CategoryHealth, nil
+	}
+	return logging.CategoryTraffic, nil
+}
+
+func inferMetricAppName(data []metrics.Datum) string {
+	for _, datum := range data {
+		if datum.Dimensions == nil {
+			continue
+		}
+		if appName := strings.TrimSpace(datum.Dimensions["AppName"]); appName != "" {
+			return appName
+		}
+	}
+	return ""
 }
 
 func entryTimestamp(entry logging.Entry) int64 {

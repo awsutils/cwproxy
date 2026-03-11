@@ -24,6 +24,7 @@ Detailed performance notes are in [PERFORMANCE.md](PERFORMANCE.md).
 - Emits minified JSON access logs and EMF metrics to stdout
 - Emits CloudWatch traffic logs and EMF metrics in the same log event
 - Emits health logs and health EMF metrics to a separate log group
+- Suppresses traffic log entries for proxied request paths that match resolved `HEALTH_URLS` paths, while still emitting traffic metrics
 - Publishes traffic metrics under `app/traffic`
 - Publishes health metrics under `app/health`
 - Auto-detects EC2, ECS, and EKS runtime metadata and includes it in logs when available
@@ -62,6 +63,7 @@ Traffic log output:
 
 - stdout: single-line minified JSON, with EMF fields attached when traffic metrics are emitted
 - CloudWatch log group: `LOG_GROUP_NAME`
+- traffic log entries are suppressed when the proxied request path matches a resolved `HEALTH_URLS` path
 
 Health log output:
 

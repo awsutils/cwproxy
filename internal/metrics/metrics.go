@@ -128,6 +128,36 @@ func (NopPublisher) Close(context.Context) error {
 	return nil
 }
 
+type MultiPublisher struct {
+	publishers []Publisher
+}
+
+func NewMultiPublisher(publishers ...Publisher) *MultiPublisher {
+	filtered := make([]Publisher, 0, len(publishers))
+	for _, publisher := range publishers {
+		if publisher != nil {
+			filtered = append(filtered, publisher)
+		}
+	}
+	return &MultiPublisher{publishers: filtered}
+}
+
+func (p *MultiPublisher) Publish(ctx context.Context, data []Datum) error {
+	var combined error
+	for _, publisher := range p.publishers {
+		combined = errors.Join(combined, publisher.Publish(ctx, data))
+	}
+	return combined
+}
+
+func (p *MultiPublisher) Close(ctx context.Context) error {
+	var combined error
+	for _, publisher := range p.publishers {
+		combined = errors.Join(combined, publisher.Close(ctx))
+	}
+	return combined
+}
+
 func (p *AsyncPublisher) run() {
 	defer close(p.done)
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/awsutils/cwproxy/internal/logging"
 	"github.com/awsutils/cwproxy/internal/metrics"
@@ -37,6 +38,40 @@ func (s *StdoutSink) LogHealthWithMetrics(_ context.Context, entry logging.Entry
 
 func (s *StdoutSink) Close(context.Context) error {
 	return nil
+}
+
+func (s *StdoutSink) Publish(_ context.Context, data []metrics.Datum) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	category, err := inferMetricCategory(data)
+	if err != nil {
+		return err
+	}
+
+	namespace := "app/traffic"
+	if category == logging.CategoryHealth {
+		namespace = "app/health"
+	}
+	appName := inferMetricAppName(data)
+
+	batches, err := partitionDatums(data, reservedMetricRootKeys)
+	if err != nil {
+		return err
+	}
+
+	timestamp := time.Now().UnixMilli()
+	var combined error
+	for _, batch := range batches {
+		message, err := marshalMetricEvent(appName, category, namespace, timestamp, batch)
+		if err != nil {
+			combined = errors.Join(combined, err)
+			continue
+		}
+		combined = errors.Join(combined, s.write(message))
+	}
+	return combined
 }
 
 func (s *StdoutSink) logWithMetrics(entry logging.Entry, data []metrics.Datum, namespace string) error {

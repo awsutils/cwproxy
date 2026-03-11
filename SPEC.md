@@ -130,6 +130,7 @@ Logs are emitted after each request/response pair is matched.
 - Stdout traffic and health log entries must also carry EMF fields when metrics are emitted with the log event.
 - CloudWatch request log entries use the same JSON payload, but insert a newline immediately after `_q` to improve readability in the CloudWatch console.
 - CloudWatch traffic log entries may also include EMF metric fields and an `_aws` envelope in the same event.
+- Traffic log entries must be suppressed when the proxied request path matches any resolved `HEALTH_URLS` path. Suppressing the traffic log must not suppress traffic metrics for that request.
 - Health EMF events are written to `HEALTH_LOG_GROUP_NAME`, not `LOG_GROUP_NAME`.
 - Health log entries must include the health probe response body when one is available.
 

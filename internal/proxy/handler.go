@@ -23,6 +23,7 @@ import (
 type Options struct {
 	AppName         string
 	Metadata        *metadata.Snapshot
+	SuppressedPaths map[string]struct{}
 	MaxCaptureBytes int
 	Reporter        func(string, ...any)
 	Now             func() time.Time
@@ -36,6 +37,7 @@ type Handler struct {
 	sink            logging.Sink
 	publisher       metrics.Publisher
 	reporter        func(string, ...any)
+	suppressedPaths map[string]struct{}
 	maxCaptureBytes int
 	now             func() time.Time
 	proxy           *httputil.ReverseProxy
@@ -87,6 +89,7 @@ func New(targetURL *url.URL, sink logging.Sink, publisher metrics.Publisher, opt
 		sink:            sink,
 		publisher:       publisher,
 		reporter:        reporter,
+		suppressedPaths: clonePathSet(options.SuppressedPaths),
 		maxCaptureBytes: options.MaxCaptureBytes,
 		now:             now,
 	}
@@ -183,6 +186,19 @@ func (h *Handler) finalize(request *http.Request, recorder *responseRecorder, st
 		responseBody, responseBodyTruncated = state.responseCapture.Snapshot()
 	}
 
+	responseSize := recorder.BytesWritten()
+	if state.responseCapture != nil {
+		responseSize = state.responseCapture.Total()
+	}
+
+	metricData := buildMetrics(h.appName, path, request.Method, status, end.Sub(state.start), state.requestCapture.Total(), responseSize)
+	if h.shouldSuppressLog(path) {
+		if err := h.publisher.Publish(context.Background(), metricData); err != nil && h.reporter != nil {
+			h.reporter("failed to publish proxy metrics: %v", err)
+		}
+		return
+	}
+
 	responseHeaders := state.responseHeaders
 	if responseHeaders == nil {
 		responseHeaders = recorder.Header().Clone()
@@ -213,12 +229,6 @@ func (h *Handler) finalize(request *http.Request, recorder *responseRecorder, st
 	)
 	entry.Metadata = h.metadata
 
-	responseSize := recorder.BytesWritten()
-	if state.responseCapture != nil {
-		responseSize = state.responseCapture.Total()
-	}
-
-	metricData := buildMetrics(h.appName, path, request.Method, status, end.Sub(state.start), state.requestCapture.Total(), responseSize)
 	if metricSink, ok := h.sink.(logging.MetricSink); ok {
 		if err := metricSink.LogWithMetrics(context.Background(), entry, metricData); err != nil && h.reporter != nil {
 			h.reporter("failed to write CloudWatch EMF log entry: %v", err)
@@ -329,6 +339,34 @@ func cloneURL(target *url.URL) *url.URL {
 	}
 	cloned := *target
 	return &cloned
+}
+
+func clonePathSet(values map[string]struct{}) map[string]struct{} {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make(map[string]struct{}, len(values))
+	for path := range values {
+		path = normalizePath(path)
+		cloned[path] = struct{}{}
+	}
+	return cloned
+}
+
+func (h *Handler) shouldSuppressLog(path string) bool {
+	if len(h.suppressedPaths) == 0 {
+		return false
+	}
+	_, found := h.suppressedPaths[normalizePath(path)]
+	return found
+}
+
+func normalizePath(path string) string {
+	if path == "" {
+		return "/"
+	}
+	return path
 }
 
 func preserveInboundForwardedFor(request *httputil.ProxyRequest) {

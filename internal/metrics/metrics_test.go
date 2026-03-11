@@ -154,3 +154,43 @@ func TestCloneDatumClonesDimensions(t *testing.T) {
 		t.Fatalf("cloned dimensions = %#v", cloned.Dimensions)
 	}
 }
+
+type capturePublisher struct {
+	mu   sync.Mutex
+	data []Datum
+	err  error
+}
+
+func (p *capturePublisher) Publish(_ context.Context, data []Datum) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.data = append(p.data, data...)
+	return p.err
+}
+
+func (p *capturePublisher) Close(context.Context) error {
+	return p.err
+}
+
+func TestMultiPublisherFanOutAndAggregatesErrors(t *testing.T) {
+	t.Parallel()
+
+	first := &capturePublisher{}
+	second := &capturePublisher{err: errors.New("publish failed")}
+	publisher := NewMultiPublisher(nil, first, second)
+
+	err := publisher.Publish(context.Background(), []Datum{{Name: "RequestCount", Value: 1}})
+	if err == nil || !errors.Is(err, second.err) {
+		t.Fatalf("Publish error = %v", err)
+	}
+
+	first.mu.Lock()
+	if len(first.data) != 1 {
+		t.Fatalf("first publisher data = %#v", first.data)
+	}
+	first.mu.Unlock()
+
+	if err := publisher.Close(context.Background()); err == nil || !errors.Is(err, second.err) {
+		t.Fatalf("Close error = %v", err)
+	}
+}
