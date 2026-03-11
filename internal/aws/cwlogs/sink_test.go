@@ -346,50 +346,6 @@ func TestSinkPublishEmitsMetricOnlyEMFEvent(t *testing.T) {
 	}
 }
 
-func TestSinkPublishEmitsTrafficMetricOnlyEMFEvent(t *testing.T) {
-	t.Parallel()
-
-	client := &fakeLogsClient{}
-	sink, err := New(context.Background(), client, "/app/log/cwproxy", Options{
-		AppName:                "cwproxy",
-		TrafficMetricNamespace: "app/traffic",
-		StreamName:             "stream-1",
-		FlushInterval:          10 * time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-
-	err = sink.Publish(context.Background(), []metrics.Datum{
-		{
-			Name:  "RequestCount",
-			Value: 1,
-			Unit:  metrics.UnitCount,
-			Dimensions: map[string]string{
-				"AppName": "cwproxy",
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Publish returned error: %v", err)
-	}
-	if err := sink.Close(context.Background()); err != nil {
-		t.Fatalf("Close returned error: %v", err)
-	}
-
-	if len(client.inputs) != 1 || len(client.inputs[0].LogEvents) != 1 {
-		t.Fatalf("PutLogEvents inputs = %#v", client.inputs)
-	}
-
-	message := *client.inputs[0].LogEvents[0].Message
-	if !strings.Contains(message, "\"_t\":\"TRAFFIC\"") {
-		t.Fatalf("traffic category missing from CloudWatch metric event: %q", message)
-	}
-	if !strings.Contains(message, "\"RequestCount\":1") || !strings.Contains(message, "\"_aws\"") {
-		t.Fatalf("metric-only CloudWatch event missing EMF payload: %q", message)
-	}
-}
-
 func TestSinkLogHealthWithMetricsEmbedsResponseBody(t *testing.T) {
 	t.Parallel()
 

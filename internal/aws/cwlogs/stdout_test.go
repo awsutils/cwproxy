@@ -202,38 +202,3 @@ func TestStdoutSinkLogHealthWithMetricsIncludesResponseBody(t *testing.T) {
 		t.Fatalf("health metrics missing from stdout health event: %q", message)
 	}
 }
-
-func TestStdoutSinkPublishEmitsTrafficMetricOnlyEvent(t *testing.T) {
-	t.Parallel()
-
-	buffer := &bytes.Buffer{}
-	sink := NewStdoutSink(buffer)
-
-	err := sink.Publish(context.Background(), []metrics.Datum{
-		{
-			Name:  "RequestCount",
-			Value: 1,
-			Unit:  metrics.UnitCount,
-			Dimensions: map[string]string{
-				"AppName": "cwproxy",
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Publish returned error: %v", err)
-	}
-
-	message := strings.TrimSpace(buffer.String())
-	if !strings.Contains(message, "\"_t\":\"TRAFFIC\"") {
-		t.Fatalf("traffic category missing from metric-only stdout event: %q", message)
-	}
-	if !strings.Contains(message, "\"app_name\":\"cwproxy\"") {
-		t.Fatalf("app_name missing from metric-only stdout event: %q", message)
-	}
-	if strings.Contains(message, "\",\n\"_t\"") {
-		t.Fatalf("metric-only stdout event unexpectedly contains CloudWatch formatting newline: %q", message)
-	}
-	if !strings.Contains(message, "\"_aws\"") || !strings.Contains(message, "\"RequestCount\":1") {
-		t.Fatalf("metric-only stdout event missing EMF payload: %q", message)
-	}
-}

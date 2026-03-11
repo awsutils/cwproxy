@@ -81,7 +81,7 @@ func run() error {
 
 	stdoutSink := cwlogs.NewStdoutSink(os.Stdout)
 	logSink := logging.Sink(stdoutSink)
-	proxyMetricPublisher := metrics.Publisher(stdoutSink)
+	proxyMetricPublisher := metrics.Publisher(metrics.NopPublisher{})
 	healthMetricPublisher := metrics.Publisher(metrics.NopPublisher{})
 	var healthSink logging.Sink = stdoutSink
 
@@ -112,7 +112,7 @@ func run() error {
 				reporter.Printf("failed to initialize CloudWatch traffic sink: %v", trafficSinkErr)
 			} else {
 				logSink = logging.NewMultiSink(stdoutSink, trafficLogSink)
-				proxyMetricPublisher = metrics.NewMultiPublisher(stdoutSink, trafficLogSink)
+				proxyMetricPublisher = trafficLogSink
 				closers = append(closers, trafficLogSink)
 			}
 
@@ -135,7 +135,9 @@ func run() error {
 	handler := proxy.New(cfg.TargetURL, logSink, proxyMetricPublisher, proxy.Options{
 		AppName:         cfg.AppName,
 		Metadata:        runtimeMetadata,
-		SuppressedPaths: healthPathSet(cfg.HealthURLs),
+		HealthPaths:     healthPathSet(cfg.HealthURLs),
+		HealthSink:      healthSink,
+		HealthPublisher: healthMetricPublisher,
 		MaxCaptureBytes: cfg.CaptureBodyLimit,
 		Reporter:        reporter.Printf,
 	})
