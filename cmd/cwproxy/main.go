@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"regexp"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/awsutils/cwproxy/internal/aws/cwlogs"
 	"github.com/awsutils/cwproxy/internal/config"
 	"github.com/awsutils/cwproxy/internal/health"
+	"github.com/awsutils/cwproxy/internal/inspector"
 	"github.com/awsutils/cwproxy/internal/logging"
 	"github.com/awsutils/cwproxy/internal/metadata"
 	"github.com/awsutils/cwproxy/internal/metrics"
@@ -28,6 +30,10 @@ var nonAlphaNumeric = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
 func main() {
 	if err := run(); err != nil {
+		var exitErr *exitCodeError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.code)
+		}
 		fmt.Fprintf(os.Stderr, "cwproxy: %v\n", err)
 		os.Exit(1)
 	}
@@ -35,17 +41,37 @@ func main() {
 
 func run() error {
 	reporter := log.New(os.Stderr, "cwproxy: ", log.LstdFlags|log.Lmsgprefix)
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
 
-	rootContext, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	metadataContext, metadataCancel := context.WithTimeout(rootContext, 200*time.Millisecond)
+	metadataContext, metadataCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	runtimeMetadata := metadata.Load(metadataContext, metadata.Options{
 		Reporter: reporter.Printf,
 	})
 	metadataCancel()
 
-	cfg, err := config.LoadFromEnv(os.LookupEnv, func() (string, error) {
+	lookupEnv := os.LookupEnv
+	var err error
+	var child *inspector.Child
+	inspectorArgs := os.Args[1:]
+	if len(inspectorArgs) > 0 {
+		child, err = inspector.Start(inspectorArgs[0], inspectorArgs[1:], os.Environ(), os.Stdin, os.Stdout, os.Stderr)
+		if err != nil {
+			return fmt.Errorf("start inspector target: %w", err)
+		}
+
+		if _, found := os.LookupEnv("APP_PORT"); !found {
+			detectedPort, detectErr := waitForInspectorPort(context.Background(), child, signals, reporter.Printf)
+			if detectErr != nil {
+				return detectErr
+			}
+			reporter.Printf("inspector mode detected listen port %d for %q", detectedPort, child.Command())
+			lookupEnv = withEnvOverride(lookupEnv, "APP_PORT", strconv.Itoa(detectedPort))
+		}
+	}
+
+	cfg, err := config.LoadFromEnv(lookupEnv, func() (string, error) {
 		return resolveDefaultAppName(runtimeMetadata, os.Hostname)
 	})
 	if err != nil {
@@ -69,13 +95,13 @@ func run() error {
 			reporter.Printf("AWS region is not configured in the environment; using %q from runtime metadata", awsRegion)
 		}
 
-		awsConfig, awsErr := awscfg.LoadDefaultConfig(rootContext, awscfg.WithRegion(awsRegion))
+		awsConfig, awsErr := awscfg.LoadDefaultConfig(context.Background(), awscfg.WithRegion(awsRegion))
 		if awsErr != nil {
 			reporter.Printf("failed to load AWS configuration: %v", awsErr)
 		} else {
 			client := cloudwatchlogs.NewFromConfig(awsConfig)
 			now := time.Now()
-			trafficLogSink, trafficSinkErr := cwlogs.New(rootContext, client, cfg.LogGroupName, cwlogs.Options{
+			trafficLogSink, trafficSinkErr := cwlogs.New(context.Background(), client, cfg.LogGroupName, cwlogs.Options{
 				AppName:                cfg.AppName,
 				TrafficMetricNamespace: "app/traffic",
 				StreamName:             sanitizeStreamName(cfg.AppName+"-traffic", now, os.Getpid()),
@@ -89,7 +115,7 @@ func run() error {
 				closers = append(closers, trafficLogSink)
 			}
 
-			healthCWSink, healthSinkErr := cwlogs.New(rootContext, client, cfg.HealthLogGroupName, cwlogs.Options{
+			healthCWSink, healthSinkErr := cwlogs.New(context.Background(), client, cfg.HealthLogGroupName, cwlogs.Options{
 				AppName:               cfg.AppName,
 				HealthMetricNamespace: "app/health",
 				StreamName:            sanitizeStreamName(cfg.AppName+"-health", now, os.Getpid()),
@@ -111,6 +137,8 @@ func run() error {
 		MaxCaptureBytes: cfg.CaptureBodyLimit,
 		Reporter:        reporter.Printf,
 	})
+	runContext, stopRun := context.WithCancel(context.Background())
+	defer stopRun()
 
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.ProxyPort),
@@ -130,7 +158,7 @@ func run() error {
 		Reporter:        reporter.Printf,
 	})
 
-	go healthRunner.Run(rootContext)
+	go healthRunner.Run(runContext)
 
 	serverErrors := make(chan error, 1)
 	go func() {
@@ -142,26 +170,83 @@ func run() error {
 		serverErrors <- server.ListenAndServe()
 	}()
 
-	select {
-	case err = <-serverErrors:
-		if errors.Is(err, http.ErrServerClosed) {
-			err = nil
+	var shutdownOnce sync.Once
+	shutdownStarted := false
+	shutdownDone := make(chan error, 1)
+	initiateShutdown := func() {
+		shutdownOnce.Do(func() {
+			shutdownStarted = true
+			stopRun()
+			go func() {
+				shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				shutdownDone <- server.Shutdown(shutdownContext)
+			}()
+		})
+	}
+
+	var runErr error
+	if child == nil {
+		select {
+		case err = <-serverErrors:
+			if !errors.Is(err, http.ErrServerClosed) {
+				runErr = err
+			}
+		case sig := <-signals:
+			reporter.Printf("received signal %v; shutting down", sig)
 		}
-	case <-rootContext.Done():
-		err = nil
+		initiateShutdown()
+	} else {
+		reporter.Printf("inspector mode started child process %q (pid=%d)", child.Command(), child.PID())
+
+		for {
+			select {
+			case err = <-serverErrors:
+				if errors.Is(err, http.ErrServerClosed) {
+					continue
+				}
+				if runErr == nil {
+					runErr = err
+				}
+				reporter.Printf("proxy server stopped unexpectedly: %v", err)
+				if forwardErr := child.ForwardSignal(syscall.SIGTERM); forwardErr != nil {
+					reporter.Printf("failed to forward termination signal to inspector child: %v", forwardErr)
+				}
+				initiateShutdown()
+			case sig := <-signals:
+				reporter.Printf("forwarding signal %v to inspector child", sig)
+				if forwardErr := child.ForwardSignal(sig); forwardErr != nil {
+					reporter.Printf("failed to forward signal to inspector child: %v", forwardErr)
+				}
+				initiateShutdown()
+			case <-child.Done():
+				childStatus, _ := child.Result()
+				initiateShutdown()
+				if shutdownStarted {
+					if shutdownErr := <-shutdownDone; shutdownErr != nil && !errors.Is(shutdownErr, http.ErrServerClosed) && !errors.Is(shutdownErr, context.Canceled) {
+						reporter.Printf("server shutdown returned error: %v", shutdownErr)
+					}
+				}
+				closeErr := closeAllWithTimeout(10*time.Second, closers...)
+				if closeErr != nil {
+					reporter.Printf("failed to flush and close sinks: %v", closeErr)
+				}
+				return childExitError(childStatus)
+			}
+		}
 	}
 
-	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	shutdownErr := server.Shutdown(shutdownContext)
-	closeErr := closeAll(context.Background(), closers...)
-
-	if err != nil {
-		return err
+	var shutdownErr error
+	if shutdownStarted {
+		shutdownErr = <-shutdownDone
 	}
+	closeErr := closeAllWithTimeout(10*time.Second, closers...)
+
 	if shutdownErr != nil && !errors.Is(shutdownErr, context.Canceled) {
 		return shutdownErr
+	}
+	if runErr != nil {
+		return runErr
 	}
 	return closeErr
 }
@@ -179,6 +264,12 @@ func closeAll(ctx context.Context, closers ...contextCloser) error {
 		combined = errors.Join(combined, closer.Close(ctx))
 	}
 	return combined
+}
+
+func closeAllWithTimeout(timeout time.Duration, closers ...contextCloser) error {
+	closeContext, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return closeAll(closeContext, closers...)
 }
 
 func sanitizeStreamName(appName string, now time.Time, pid int) string {
@@ -207,4 +298,70 @@ func resolveAWSRegion(snapshot *metadata.Snapshot) (string, string) {
 		return region, "runtime metadata"
 	}
 	return "", ""
+}
+
+func waitForInspectorPort(ctx context.Context, child *inspector.Child, signals <-chan os.Signal, reporter func(string, ...any)) (int, error) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if result, exited := child.Result(); exited {
+			return 0, childExitBeforeListenError(result)
+		}
+
+		ports, _ := child.ListeningPorts(ctx)
+		if len(ports) > 0 {
+			return ports[0], nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-child.Done():
+			result, _ := child.Result()
+			return 0, childExitBeforeListenError(result)
+		case sig := <-signals:
+			if reporter != nil {
+				reporter("forwarding signal %v to inspector child during startup", sig)
+			}
+			if err := child.ForwardSignal(sig); err != nil && reporter != nil {
+				reporter("failed to forward signal to inspector child during startup: %v", err)
+			}
+		case <-ticker.C:
+		}
+	}
+}
+
+func withEnvOverride(lookupEnv func(string) (string, bool), key, value string) func(string) (string, bool) {
+	return func(current string) (string, bool) {
+		if current == key {
+			return value, true
+		}
+		return lookupEnv(current)
+	}
+}
+
+type exitCodeError struct {
+	code int
+}
+
+func (e *exitCodeError) Error() string {
+	return fmt.Sprintf("exit with code %d", e.code)
+}
+
+func childExitError(status inspector.ExitStatus) error {
+	if status.Code == 0 {
+		return nil
+	}
+	if status.Code < 0 {
+		return &exitCodeError{code: 1}
+	}
+	return &exitCodeError{code: status.Code}
+}
+
+func childExitBeforeListenError(status inspector.ExitStatus) error {
+	if err := childExitError(status); err != nil {
+		return err
+	}
+	return errors.New("inspector child exited before listen port detection")
 }

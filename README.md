@@ -2,6 +2,11 @@
 
 `cwproxy` is a small Go reverse proxy for applications that already run on the same host or in the same shared network namespace. It listens on `PROXY_PORT`, forwards traffic to `127.0.0.1:APP_PORT`, writes structured JSON logs to stdout, and delivers EMF metrics to stdout and CloudWatch Logs.
 
+It supports two execution modes:
+
+- normal mode: proxy an already-running local application on `APP_PORT`
+- inspector mode: start the target application as a child process, detect its listen port automatically, and proxy it without requiring `APP_PORT`
+
 The project is built around operational safety:
 
 - bounded request and response body capture
@@ -15,6 +20,7 @@ Detailed performance notes are in [PERFORMANCE.md](PERFORMANCE.md).
 ## Features
 
 - Reverse proxies HTTP traffic to `http://127.0.0.1:{APP_PORT}`
+- Supports inspector mode to launch the target process and auto-detect its listen port
 - Emits minified JSON access logs and EMF metrics to stdout
 - Emits CloudWatch traffic logs and EMF metrics in the same log event
 - Emits health logs and health EMF metrics to a separate log group
@@ -26,20 +32,29 @@ Detailed performance notes are in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## How It Works
 
-`cwproxy` is not a general upstream router. The upstream target is always `127.0.0.1:{APP_PORT}`.
+`cwproxy` is not a general upstream router. The upstream target is always a loopback address on the local host.
 
 That means the normal deployment patterns are:
 
 - host deployment beside a local application process
 - sidecar-style deployment where the application shares the same network namespace
 
-At runtime:
+At runtime in normal mode:
 
 1. `cwproxy` listens on `PROXY_PORT`
 2. it proxies requests to `127.0.0.1:APP_PORT`
 3. it logs request and response details to stdout
 4. if AWS region and credentials are available, it also writes CloudWatch traffic logs and health logs
 5. health probes run on a fixed 30 second interval
+
+At runtime in inspector mode:
+
+1. `cwproxy` starts the target command as a child process
+2. if `APP_PORT` is set, that explicit port is used
+3. if `APP_PORT` is not set, `cwproxy` polls the child process at roughly `100ms` intervals until at least one `LISTEN` port is found
+4. if multiple listen ports are found, the lowest port is used
+5. `cwproxy` forwards interrupt and termination signals to the child process
+6. when the child exits, `cwproxy` flushes remaining logs and metrics and exits with the child exit code
 
 ## Log And Metric Outputs
 
@@ -79,7 +94,7 @@ Environment variables:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PROXY_PORT` | `8081` | Port that `cwproxy` listens on |
-| `APP_PORT` | `8080` | Local upstream application port |
+| `APP_PORT` | `8080` | Local upstream application port. In inspector mode, this overrides automatic listen-port detection when explicitly set |
 | `APP_NAME` | EKS deployment name, then ECS task family, then hostname, then `cwproxy` | Application name used in logs and metric dimensions |
 | `HEALTH_URLS` | `127.0.0.1:{APP_PORT}/health` | Comma-separated health endpoints |
 | `LOG_GROUP_NAME` | `/app/log/{APP_NAME}` | CloudWatch Logs group for traffic logs and traffic EMF |
@@ -92,6 +107,13 @@ Current fixed runtime defaults:
 - health interval: `30s`
 - request body capture limit: `64 KiB`
 - response body capture limit: `64 KiB`
+
+Inspector mode details:
+
+- inspector mode is enabled when extra command-line arguments are provided after the `cwproxy` executable name
+- the child process inherits the `cwproxy` environment and standard input, output, and error streams
+- automatic port detection inspects the child process tree, so wrapper processes and short-lived launchers are supported as long as a descendant process starts listening
+- if the child exits before any listen port is detected and `APP_PORT` is not explicitly set, startup fails
 
 CloudWatch behavior:
 
@@ -200,6 +222,18 @@ Release artifacts:
 - platforms: `linux/amd64`, `linux/arm64`, `windows/amd64`, `darwin/amd64`, `darwin/arm64`
 - raw binaries are published through GitHub Pages without archive compression
 
+Inspector-mode binary examples:
+
+```bash
+./cwproxy ./my-app --port 8080
+./cwproxy node ./server.js
+```
+
+```powershell
+.\cwproxy.exe .\my-app.exe --port 8080
+.\cwproxy.exe node .\server.js
+```
+
 Simple Linux `systemd` example:
 
 ```ini
@@ -266,6 +300,8 @@ Kubernetes guidance:
 ## Local Run
 
 The example below starts a tiny Node upstream app on `127.0.0.1:18080` and runs `cwproxy` on `127.0.0.1:18081`.
+
+Normal mode uses an already-running app. Inspector mode starts the app itself.
 
 Start the demo app:
 
@@ -354,6 +390,20 @@ curl \
   -d '{"demo":true}' \
   'http://127.0.0.1:18081/hello?name=pmh'
 ```
+
+Inspector-mode local example on Windows:
+
+```powershell
+.\cwproxy.exe node -e "require('http').createServer((req,res)=>res.end('ok')).listen(18080,'127.0.0.1')"
+```
+
+Inspector-mode local example on Linux and macOS:
+
+```bash
+./cwproxy node -e "require('http').createServer((req,res)=>res.end('ok')).listen(18080,'127.0.0.1')"
+```
+
+If the child process listens on multiple ports, `cwproxy` uses the lowest port. If you need a specific port instead, set `APP_PORT` explicitly before starting `cwproxy`.
 
 ## Development Validation
 
