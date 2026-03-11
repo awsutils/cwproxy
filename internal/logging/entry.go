@@ -3,7 +3,9 @@ package logging
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -45,6 +47,7 @@ type Request struct {
 	Cookies     map[string]any `json:"cookies"`
 	Headers     map[string]any `json:"headers"`
 	Body        any            `json:"body"`
+	BodyRaw     string         `json:"body_raw,omitempty"`
 	BodyHash    string         `json:"body_hash,omitempty"`
 }
 
@@ -54,6 +57,7 @@ type Response struct {
 	Headers    map[string]any `json:"headers"`
 	SetCookies map[string]any `json:"set_cookies"`
 	Body       any            `json:"body"`
+	BodyRaw    string         `json:"body_raw,omitempty"`
 	BodyHash   string         `json:"body_hash,omitempty"`
 }
 
@@ -97,31 +101,49 @@ func ParseBody(contentType string, body []byte, truncated bool) any {
 	if len(body) == 0 {
 		return nil
 	}
+	rawBody := FormatBodyRaw(body, truncated)
 	if truncated {
-		return string(body) + "...(truncated)"
+		return rawBody
 	}
 
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
-		return string(body)
+		return rawBody
 	}
 
-	switch strings.ToLower(mediaType) {
-	case "application/json":
+	mediaType = strings.ToLower(mediaType)
+	switch {
+	case mediaType == "application/json":
 		decoder := json.NewDecoder(bytes.NewReader(body))
 		decoder.UseNumber()
 		var payload any
 		if err := decoder.Decode(&payload); err == nil {
 			return payload
 		}
-	case "application/x-www-form-urlencoded":
+	case mediaType == "application/x-www-form-urlencoded":
 		values, err := url.ParseQuery(string(body))
 		if err == nil {
 			return NormalizeValues(values)
 		}
+	case isXMLMediaType(mediaType):
+		payload, err := parseXMLBody(body)
+		if err == nil {
+			return payload
+		}
 	}
 
-	return string(body)
+	return rawBody
+}
+
+func FormatBodyRaw(body []byte, truncated bool) string {
+	if len(body) == 0 {
+		return ""
+	}
+	raw := string(body)
+	if truncated {
+		return raw + "...(truncated)"
+	}
+	return raw
 }
 
 func NormalizeHeaders(headers http.Header, excluded ...string) map[string]any {
@@ -273,4 +295,99 @@ func insertNewlineAfterSummary(body []byte) []byte {
 	}
 
 	return body
+}
+
+func isXMLMediaType(mediaType string) bool {
+	return mediaType == "application/xml" || mediaType == "text/xml" || strings.HasSuffix(mediaType, "+xml")
+}
+
+func parseXMLBody(body []byte) (any, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(body))
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			if err == io.EOF {
+				return nil, io.ErrUnexpectedEOF
+			}
+			return nil, err
+		}
+
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+
+		element, err := decodeXMLElement(decoder, start)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{xmlName(start.Name): element}, nil
+	}
+}
+
+func decodeXMLElement(decoder *xml.Decoder, start xml.StartElement) (any, error) {
+	fields := make(map[string]any, len(start.Attr))
+	for _, attribute := range start.Attr {
+		fields["@"+xmlName(attribute.Name)] = attribute.Value
+	}
+
+	textParts := make([]string, 0, 1)
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+
+		switch value := token.(type) {
+		case xml.StartElement:
+			child, err := decodeXMLElement(decoder, value)
+			if err != nil {
+				return nil, err
+			}
+			appendXMLChild(fields, xmlName(value.Name), child)
+		case xml.CharData:
+			text := strings.TrimSpace(string(value))
+			if text != "" {
+				textParts = append(textParts, text)
+			}
+		case xml.EndElement:
+			if value.Name.Local != start.Name.Local || value.Name.Space != start.Name.Space {
+				continue
+			}
+
+			text := strings.Join(textParts, " ")
+			if len(fields) == 0 {
+				if text == "" {
+					return map[string]any{}, nil
+				}
+				return text, nil
+			}
+			if text != "" {
+				fields["#text"] = text
+			}
+			return fields, nil
+		}
+	}
+}
+
+func appendXMLChild(fields map[string]any, key string, value any) {
+	if existing, found := fields[key]; found {
+		items, ok := existing.([]any)
+		if !ok {
+			fields[key] = []any{existing, value}
+			return
+		}
+		fields[key] = append(items, value)
+		return
+	}
+	fields[key] = value
+}
+
+func xmlName(name xml.Name) string {
+	if name.Local != "" {
+		return name.Local
+	}
+	return name.Space
 }

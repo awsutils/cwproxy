@@ -28,6 +28,7 @@ func TestMarshalProducesStableJSON(t *testing.T) {
 			Cookies: map[string]any{"session": "abc"},
 			Headers: map[string]any{"Content-Type": "application/json"},
 			Body:    map[string]any{"field": "value"},
+			BodyRaw: `{"field":"value"}`,
 		},
 		Response{
 			Time:       1700000000123,
@@ -35,6 +36,7 @@ func TestMarshalProducesStableJSON(t *testing.T) {
 			Headers:    map[string]any{"Content-Type": "application/json"},
 			SetCookies: map[string]any{"session": "xyz"},
 			Body:       map[string]any{"result": "ok"},
+			BodyRaw:    `{"result":"ok"}`,
 		},
 		123*time.Millisecond,
 	)
@@ -44,7 +46,7 @@ func TestMarshalProducesStableJSON(t *testing.T) {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 
-	want := fmt.Sprintf(`{"_q":"cwproxy POST /api/foo 200 123.000ms","_t":"TRAFFIC","app_name":"cwproxy","global_hash":"%s","delay":123.000,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"queries_hash":"%s","cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"},"body_hash":"%s"},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"},"body_hash":"%s"}}`,
+	want := fmt.Sprintf(`{"_q":"cwproxy POST /api/foo 200 123.000ms","_t":"TRAFFIC","app_name":"cwproxy","global_hash":"%s","delay":123.000,"request":{"time":1700000000000,"host":"example.com","port":8080,"path":"/api/foo","method":"POST","url":"example.com:8080/api/foo?key=value","queries":{"key":"value"},"queries_hash":"%s","cookies":{"session":"abc"},"headers":{"Content-Type":"application/json"},"body":{"field":"value"},"body_raw":"{\"field\":\"value\"}","body_hash":"%s"},"response":{"time":1700000000123,"status":200,"headers":{"Content-Type":"application/json"},"set_cookies":{"session":"xyz"},"body":{"result":"ok"},"body_raw":"{\"result\":\"ok\"}","body_hash":"%s"}}`,
 		entryStructureHash(
 			Request{
 				Queries: map[string]any{"key": "value"},
@@ -79,6 +81,21 @@ func TestParseBody(t *testing.T) {
 	jsonMap, ok := jsonBody.(map[string]any)
 	if !ok || jsonMap["ok"] != true {
 		t.Fatalf("json body = %#v", jsonBody)
+	}
+
+	xmlBody := ParseBody("application/problem+xml", []byte(`<status code="200"><ok>true</ok></status>`), false)
+	xmlMap, ok := xmlBody.(map[string]any)
+	if !ok {
+		t.Fatalf("xml body = %T, want map[string]any", xmlBody)
+	}
+	statusNode, ok := xmlMap["status"].(map[string]any)
+	if !ok || statusNode["@code"] != "200" || statusNode["ok"] != "true" {
+		t.Fatalf("xml body = %#v", xmlBody)
+	}
+
+	invalidXML := ParseBody("application/xml", []byte(`<broken>`), false)
+	if invalidXML != "<broken>" {
+		t.Fatalf("invalid xml body = %#v", invalidXML)
 	}
 
 	truncated := ParseBody("application/json", []byte(`{"partial":`), true)

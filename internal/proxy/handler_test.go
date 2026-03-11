@@ -180,6 +180,9 @@ func TestHandlerCapturesExchangeAndPublishesMetrics(t *testing.T) {
 	if !ok || requestBody["field"] != "value" {
 		t.Fatalf("request body = %#v", entry.Request.Body)
 	}
+	if entry.Request.BodyRaw != `{"field":"value"}` {
+		t.Fatalf("request body raw = %q", entry.Request.BodyRaw)
+	}
 	if entry.Response.Status != http.StatusCreated {
 		t.Fatalf("response status = %d", entry.Response.Status)
 	}
@@ -189,6 +192,9 @@ func TestHandlerCapturesExchangeAndPublishesMetrics(t *testing.T) {
 	responseBody, ok := entry.Response.Body.(map[string]any)
 	if !ok || responseBody["result"] != "ok" {
 		t.Fatalf("response body = %#v", entry.Response.Body)
+	}
+	if entry.Response.BodyRaw != `{"result":"ok"}` {
+		t.Fatalf("response body raw = %q", entry.Response.BodyRaw)
 	}
 
 	publisher.mu.Lock()
@@ -215,6 +221,92 @@ func TestHandlerCapturesExchangeAndPublishesMetrics(t *testing.T) {
 		"Method":   http.MethodPost,
 	}) {
 		t.Fatalf("request-scoped 2XXStatusCode metric missing: %#v", publisher.data)
+	}
+}
+
+func TestHandlerParsesXMLAndPreservesRawBodies(t *testing.T) {
+	t.Parallel()
+
+	const requestXML = `<note id="7"><to>Alice</to><from>Bob</from></note>`
+	const responseXML = `<result><item sku="1">ok</item><item sku="2">done</item></result>`
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		payload, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatalf("ReadAll returned error: %v", err)
+		}
+		if string(payload) != requestXML {
+			t.Fatalf("request body = %q", payload)
+		}
+
+		writer.Header().Set("Content-Type", "application/xml")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(responseXML))
+	}))
+	defer upstream.Close()
+
+	targetURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("Parse upstream URL: %v", err)
+	}
+
+	sink := &captureSink{}
+	handler := New(targetURL, sink, &metricCapture{}, Options{
+		AppName:         "cwproxy",
+		MaxCaptureBytes: 4096,
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/xml", strings.NewReader(requestXML))
+	request.Header.Set("Content-Type", "application/problem+xml")
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.entries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(sink.entries))
+	}
+
+	entry := sink.entries[0]
+	if entry.Request.BodyRaw != requestXML {
+		t.Fatalf("request body raw = %q", entry.Request.BodyRaw)
+	}
+	requestBody, ok := entry.Request.Body.(map[string]any)
+	if !ok {
+		t.Fatalf("request body = %T, want map[string]any", entry.Request.Body)
+	}
+	note, ok := requestBody["note"].(map[string]any)
+	if !ok || note["@id"] != "7" || note["to"] != "Alice" || note["from"] != "Bob" {
+		t.Fatalf("request xml body = %#v", entry.Request.Body)
+	}
+
+	if entry.Response.BodyRaw != responseXML {
+		t.Fatalf("response body raw = %q", entry.Response.BodyRaw)
+	}
+	responseBody, ok := entry.Response.Body.(map[string]any)
+	if !ok {
+		t.Fatalf("response body = %T, want map[string]any", entry.Response.Body)
+	}
+	result, ok := responseBody["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("response xml body = %#v", entry.Response.Body)
+	}
+	items, ok := result["item"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("response xml items = %#v", result["item"])
+	}
+	firstItem, ok := items[0].(map[string]any)
+	if !ok || firstItem["@sku"] != "1" || firstItem["#text"] != "ok" {
+		t.Fatalf("first xml item = %#v", items[0])
+	}
+	secondItem, ok := items[1].(map[string]any)
+	if !ok || secondItem["@sku"] != "2" || secondItem["#text"] != "done" {
+		t.Fatalf("second xml item = %#v", items[1])
 	}
 }
 

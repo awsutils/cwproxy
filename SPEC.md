@@ -179,6 +179,7 @@ Example stdout log entry:
     "cookies": { "session": "abc" },
     "headers": { "Content-Type": "application/json" },
     "body": { "field": "value" },
+    "body_raw": "{\"field\":\"value\"}",
     "body_hash": "0f1e2d"
   },
   "response": {
@@ -187,6 +188,7 @@ Example stdout log entry:
     "headers": { "Content-Type": "application/json" },
     "set_cookies": { "session": "xyz" },
     "body": { "result": "ok" },
+    "body_raw": "{\"result\":\"ok\"}",
     "body_hash": "abcdef"
   }
 }
@@ -199,7 +201,8 @@ Example stdout log entry:
 - `app_name`: traffic-log application identifier. Health log entries must not include this field.
 - `delay`: elapsed time in milliseconds as a JSON number with exactly three decimal places
 - `request.time` and `response.time`: Unix timestamps in milliseconds
-- `body`: parsed as an object when `Content-Type` is `application/json` or `application/x-www-form-urlencoded`; otherwise stored as a raw string
+- `body`: parsed into a structured object when `Content-Type` is `application/json`, `application/x-www-form-urlencoded`, `application/xml`, `text/xml`, or any `+xml` media type; otherwise stored as a raw string
+- `request.body_raw` and `response.body_raw`: raw captured body text before parsing. These fields are emitted for traffic logs when a body is captured.
 - Truncated request or response bodies must be marked with `...(truncated)` instead of causing unbounded memory growth
 - `aws_meta`: optional AWS runtime metadata with any detected EC2, ECS, and EKS details
 - `queries_hash`: stable 6-character hash of the request query structure

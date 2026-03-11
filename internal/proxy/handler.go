@@ -213,6 +213,7 @@ func (h *Handler) finalize(request *http.Request, recorder *responseRecorder, st
 			Cookies: logging.NormalizeCookies(request.Cookies()),
 			Headers: logging.NormalizeHeaders(request.Header),
 			Body:    logging.ParseBody(request.Header.Get("Content-Type"), requestBody, requestBodyTruncated),
+			BodyRaw: logging.FormatBodyRaw(requestBody, requestBodyTruncated),
 		},
 		logging.Response{
 			Time:       end.UnixMilli(),
@@ -220,6 +221,7 @@ func (h *Handler) finalize(request *http.Request, recorder *responseRecorder, st
 			Headers:    logging.NormalizeHeaders(responseHeaders, "Set-Cookie"),
 			SetCookies: logging.NormalizeCookies(state.responseCookies),
 			Body:       logging.ParseBody(responseHeaders.Get("Content-Type"), responseBody, responseBodyTruncated),
+			BodyRaw:    logging.FormatBodyRaw(responseBody, responseBodyTruncated),
 		},
 		end.Sub(state.start),
 	)

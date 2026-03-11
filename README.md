@@ -25,10 +25,12 @@ Detailed performance notes are in [PERFORMANCE.md](PERFORMANCE.md).
 - Emits CloudWatch traffic logs and EMF metrics in the same log event
 - Emits health logs and health EMF metrics to a separate log group
 - Suppresses proxy telemetry for external requests whose path matches resolved `HEALTH_URLS`; only the internal health runner emits health-category telemetry
+- Preserves raw request and response body text in traffic logs alongside parsed body content
 - Publishes traffic metrics under `app/traffic`
 - Publishes health metrics under `app/health`
 - Auto-detects EC2, ECS, and EKS runtime metadata and includes it in logs when available
 - Adds 6-character structural hashes for query shape, request body shape, response body shape, and combined request/response shape
+- Parses JSON, form, and XML request and response bodies into structured log objects when possible
 - Truncates captured bodies instead of allowing unbounded memory growth
 
 ## How It Works
@@ -65,6 +67,7 @@ Traffic log output:
 - stdout: single-line minified JSON, with EMF fields attached when traffic metrics are emitted
 - CloudWatch log group: `LOG_GROUP_NAME`
 - requests whose proxied path matches a resolved `HEALTH_URLS` path do not emit traffic-category telemetry
+- traffic request and response objects include parsed `body`, raw `body_raw`, and structural body hashes when a body is captured
 
 Health log output:
 
