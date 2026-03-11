@@ -198,7 +198,7 @@ Release artifacts:
 
 - GitHub Actions builds static binaries on every push
 - platforms: `linux/amd64`, `linux/arm64`, `windows/amd64`, `darwin/amd64`, `darwin/arm64`
-- release archives are published through GitHub Pages
+- raw binaries are published through GitHub Pages without archive compression
 
 Simple Linux `systemd` example:
 

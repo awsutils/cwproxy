@@ -24,22 +24,22 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build release archives
+      - name: Build release binaries
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist site/downloads
 
           targets=(
-            "linux amd64 tar.gz"
-            "linux arm64 tar.gz"
-            "windows amd64 zip"
-            "darwin amd64 tar.gz"
-            "darwin arm64 tar.gz"
+            "linux amd64"
+            "linux arm64"
+            "windows amd64"
+            "darwin amd64"
+            "darwin arm64"
           )
 
           for target in "${targets[@]}"; do
-            read -r goos goarch archive <<<"$target"
+            read -r goos goarch <<<"$target"
             ext=""
             if [ "$goos" = "windows" ]; then
               ext=".exe"
@@ -52,14 +52,12 @@ jobs:
             GOOS="$goos" GOARCH="$goarch" \
               go build -trimpath -ldflags="-s -w" -o "$output_bin" ./cmd/cwproxy
 
-            archive_name="cwproxy-${goos}-${goarch}"
-            if [ "$archive" = "zip" ]; then
-              (
-                cd "$output_dir"
-                zip -q "../../../site/downloads/${archive_name}.zip" "cwproxy${ext}"
-              )
+            release_bin="site/downloads/cwproxy-${goos}-${goarch}${ext}"
+            cp "$output_bin" "$release_bin"
+            if [ "$goos" != "windows" ]; then
+              chmod 0755 "$release_bin"
             else
-              tar -C "$output_dir" -czf "site/downloads/${archive_name}.tar.gz" "cwproxy${ext}"
+              chmod 0644 "$release_bin"
             fi
           done
 
@@ -133,7 +131,7 @@ jobs:
 
           cat >> site/index.html <<'EOF'
               </ul>
-              <p>Checksums are published in <code>downloads/SHA256SUMS</code>.</p>
+              <p>Checksums are published in <code>downloads/SHA256SUMS</code>. Raw binaries are published directly without archive compression.</p>
             </main>
           </body>
           </html>

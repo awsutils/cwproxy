@@ -204,6 +204,8 @@ The application must be distributed for the following platforms:
 
 Provide a GitHub Actions workflow that builds these binaries and publishes them through GitHub Pages.
 
+Raw binaries must be published directly. Do not wrap binary artifacts in `.zip` or `.tar.gz` archives.
+
 All distribution binaries must be built with `CGO_ENABLED=0`.
 
 ### Container Image Distribution
