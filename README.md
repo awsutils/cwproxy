@@ -71,6 +71,7 @@ Health log output:
 - CloudWatch log group: `HEALTH_LOG_GROUP_NAME`
 - includes health response body when available
 - health-category telemetry is emitted only by the internal health runner
+- health log events omit `_q` and `app_name`; they still include `_t`, request and response payloads, metadata, and EMF fields
 
 Traffic metrics:
 
@@ -89,6 +90,7 @@ Important detail:
 
 - metrics are sent through CloudWatch Embedded Metric Format in stdout and CloudWatch Logs
 - every structured log event includes `_t` with `TRAFFIC` or `HEALTH` so the category is explicit in stdout and CloudWatch
+- `_q` and `app_name` are reserved for traffic logs only
 - `cwproxy` does not use `cloudwatch:PutMetricData`
 
 ## Configuration

@@ -16,9 +16,9 @@ import (
 )
 
 type Entry struct {
-	Summary    string             `json:"_q"`
+	Summary    string             `json:"_q,omitempty"`
 	Type       string             `json:"_t"`
-	AppName    string             `json:"app_name"`
+	AppName    string             `json:"app_name,omitempty"`
 	Metadata   *metadata.Snapshot `json:"aws_meta,omitempty"`
 	GlobalHash string             `json:"global_hash"`
 	Delay      Duration           `json:"delay"`
@@ -82,9 +82,13 @@ func Marshal(entry Entry) ([]byte, error) {
 }
 
 func MarshalForCloudWatch(entry Entry) ([]byte, error) {
-	body, err := Marshal(entry)
+	entry = ensureEntry(entry)
+	body, err := json.Marshal(entry)
 	if err != nil {
 		return nil, err
+	}
+	if entry.Type == CategoryHealth || entry.Summary == "" {
+		return body, nil
 	}
 	return insertNewlineAfterSummary(body), nil
 }
@@ -189,6 +193,10 @@ func ensureEntry(entry Entry) Entry {
 	entry.Request = ensureRequest(entry.Request)
 	entry.Response = ensureResponse(entry.Response)
 	entry.Type = NormalizeCategory(entry.Type)
+	if entry.Type == CategoryHealth {
+		entry.Summary = ""
+		entry.AppName = ""
+	}
 	if entry.GlobalHash == "" {
 		entry.GlobalHash = entryStructureHash(entry.Request, entry.Response)
 	}

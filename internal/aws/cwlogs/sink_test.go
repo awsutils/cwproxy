@@ -317,11 +317,14 @@ func TestSinkPublishEmitsMetricOnlyEMFEvent(t *testing.T) {
 	}
 
 	message := *client.inputs[0].LogEvents[0].Message
-	if !strings.Contains(message, "cwproxy METRIC HealthLatency,HealthStatus") {
-		t.Fatalf("metric summary missing from CloudWatch log event: %q", message)
-	}
 	if !strings.Contains(message, "\"_t\":\"HEALTH\"") {
 		t.Fatalf("health category missing from CloudWatch metric event: %q", message)
+	}
+	if strings.Contains(message, `"_q":`) {
+		t.Fatalf("health CloudWatch metric event unexpectedly included _q: %q", message)
+	}
+	if strings.Contains(message, `"app_name":`) {
+		t.Fatalf("health CloudWatch metric event unexpectedly included app_name: %q", message)
 	}
 	if !strings.Contains(message, "\"Endpoint\":\"http://127.0.0.1:8080/health\"") {
 		t.Fatalf("Endpoint missing from CloudWatch log event: %q", message)
@@ -426,6 +429,12 @@ func TestSinkLogHealthWithMetricsEmbedsResponseBody(t *testing.T) {
 	}
 	if !strings.Contains(message, "\"_t\":\"HEALTH\"") {
 		t.Fatalf("health category missing from health log event: %q", message)
+	}
+	if strings.Contains(message, `"_q":`) {
+		t.Fatalf("health log event unexpectedly included _q: %q", message)
+	}
+	if strings.Contains(message, `"app_name":`) {
+		t.Fatalf("health log event unexpectedly included app_name: %q", message)
 	}
 }
 

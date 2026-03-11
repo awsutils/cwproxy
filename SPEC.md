@@ -133,6 +133,7 @@ Logs are emitted after each request/response pair is matched.
 - Requests coming through the reverse proxy whose path matches any resolved `HEALTH_URLS` path must not emit proxy traffic telemetry and must not be remapped into health-category telemetry. Only the internal health runner may emit health-category log and metric events.
 - Health EMF events are written to `HEALTH_LOG_GROUP_NAME`, not `LOG_GROUP_NAME`.
 - Health log entries must include the health probe response body when one is available.
+- Health log entries must omit `_q` and `app_name`. Those fields are present only on traffic log entries.
 
 Example stdout log entry:
 
@@ -187,6 +188,7 @@ Example stdout log entry:
 - `_q` format: `{APP_NAME} {METHOD} {PATH} {STATUS} {DELAY}ms`
 - If the request method is unavailable, `_q` must use `UNKNOWN`
 - `_t`: log category discriminator. It must be `TRAFFIC` for normal proxied request logs and `HEALTH` for health probe logs emitted by the internal health runner
+- `app_name`: traffic-log application identifier. Health log entries must not include this field.
 - `delay`: elapsed time in milliseconds as a JSON number with exactly three decimal places
 - `request.time` and `response.time`: Unix timestamps in milliseconds
 - `body`: parsed as an object when `Content-Type` is `application/json` or `application/x-www-form-urlencoded`; otherwise stored as a raw string

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,6 +142,30 @@ func TestNewHealthEntryUsesHealthCategory(t *testing.T) {
 	}
 }
 
+func TestMarshalHealthEntryOmitsSummaryAndAppName(t *testing.T) {
+	t.Parallel()
+
+	entry := NewHealthEntry(
+		"cwproxy",
+		Request{Path: "/health", Method: http.MethodGet},
+		Response{Status: http.StatusOK},
+		time.Millisecond,
+	)
+
+	body, err := Marshal(entry)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+
+	got := string(body)
+	if strings.Contains(got, `"_q":`) {
+		t.Fatalf("Marshal() unexpectedly included _q: %s", got)
+	}
+	if strings.Contains(got, `"app_name":`) {
+		t.Fatalf("Marshal() unexpectedly included app_name: %s", got)
+	}
+}
+
 func TestDurationFormatsWithThreeDecimals(t *testing.T) {
 	t.Parallel()
 
@@ -191,6 +216,38 @@ func TestMarshalForCloudWatchInsertsNewlineAfterSummary(t *testing.T) {
 	)
 	if string(body) != want {
 		t.Fatalf("MarshalForCloudWatch() = %s, want %s", body, want)
+	}
+}
+
+func TestMarshalForCloudWatchHealthEntryOmitsSummaryAndAppName(t *testing.T) {
+	t.Parallel()
+
+	entry := NewHealthEntry(
+		"cwproxy",
+		Request{
+			Method: http.MethodGet,
+			Path:   "/health",
+		},
+		Response{
+			Status: http.StatusOK,
+		},
+		1500*time.Microsecond,
+	)
+
+	body, err := MarshalForCloudWatch(entry)
+	if err != nil {
+		t.Fatalf("MarshalForCloudWatch returned error: %v", err)
+	}
+
+	got := string(body)
+	if strings.Contains(got, `"_q":`) {
+		t.Fatalf("MarshalForCloudWatch() unexpectedly included _q: %s", got)
+	}
+	if strings.Contains(got, `"app_name":`) {
+		t.Fatalf("MarshalForCloudWatch() unexpectedly included app_name: %s", got)
+	}
+	if strings.Contains(got, "\",\n") {
+		t.Fatalf("MarshalForCloudWatch() unexpectedly inserted summary newline: %s", got)
 	}
 }
 

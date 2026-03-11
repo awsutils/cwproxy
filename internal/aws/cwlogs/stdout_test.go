@@ -198,6 +198,12 @@ func TestStdoutSinkLogHealthWithMetricsIncludesResponseBody(t *testing.T) {
 	if !strings.Contains(message, "\"_t\":\"HEALTH\"") {
 		t.Fatalf("health category missing from stdout health event: %q", message)
 	}
+	if strings.Contains(message, `"_q":`) {
+		t.Fatalf("stdout health event unexpectedly included _q: %q", message)
+	}
+	if strings.Contains(message, `"app_name":`) {
+		t.Fatalf("stdout health event unexpectedly included app_name: %q", message)
+	}
 	if !strings.Contains(message, "\"HealthStatus\":1") || !strings.Contains(message, "\"HealthLatency\":1") {
 		t.Fatalf("health metrics missing from stdout health event: %q", message)
 	}

@@ -84,24 +84,32 @@ func marshalMetricEvent(appName, category, namespace string, timestamp int64, da
 	if err != nil {
 		return nil, err
 	}
+	category = logging.NormalizeCategory(category)
+	includeIdentity := category != logging.CategoryHealth
 
 	buffer := bytes.NewBuffer(make([]byte, 0, 256))
 	buffer.WriteByte('{')
 
-	if err := writeJSONField(buffer, "_q", buildMetricSummary(appName, data)); err != nil {
-		return nil, err
-	}
-	if newlineAfterSummary {
-		buffer.WriteString(",\n")
-	} else {
+	if includeIdentity {
+		if err := writeJSONField(buffer, "_q", buildMetricSummary(appName, data)); err != nil {
+			return nil, err
+		}
+		if newlineAfterSummary {
+			buffer.WriteString(",\n")
+		} else {
+			buffer.WriteByte(',')
+		}
+		if err := writeJSONField(buffer, "_t", category); err != nil {
+			return nil, err
+		}
 		buffer.WriteByte(',')
-	}
-	if err := writeJSONField(buffer, "_t", logging.NormalizeCategory(category)); err != nil {
-		return nil, err
-	}
-	buffer.WriteByte(',')
-	if err := writeJSONField(buffer, "app_name", appName); err != nil {
-		return nil, err
+		if err := writeJSONField(buffer, "app_name", appName); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := writeJSONField(buffer, "_t", category); err != nil {
+			return nil, err
+		}
 	}
 	for _, field := range fields {
 		buffer.WriteByte(',')
