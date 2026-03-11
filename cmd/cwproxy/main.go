@@ -52,11 +52,11 @@ func run() error {
 		return err
 	}
 
-	stdoutSink := logging.NewStdoutSink(os.Stdout)
+	stdoutSink := cwlogs.NewStdoutSink(os.Stdout)
 	logSink := logging.Sink(stdoutSink)
 	proxyMetricPublisher := metrics.Publisher(metrics.NopPublisher{})
 	healthMetricPublisher := metrics.Publisher(metrics.NopPublisher{})
-	var healthSink logging.Sink
+	var healthSink logging.Sink = stdoutSink
 
 	closers := []contextCloser{stdoutSink}
 
@@ -99,7 +99,7 @@ func run() error {
 				reporter.Printf("failed to initialize CloudWatch health sink: %v", healthSinkErr)
 			} else {
 				healthMetricPublisher = healthCWSink
-				healthSink = healthCWSink
+				healthSink = logging.NewMultiSink(stdoutSink, healthCWSink)
 				closers = append(closers, healthCWSink)
 			}
 		}

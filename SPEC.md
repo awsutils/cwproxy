@@ -1,6 +1,6 @@
 ## Introduction
 
-`cwproxy` is an HTTP reverse proxy written in Go. It forwards traffic to a local application, writes structured access logs to stdout and CloudWatch Logs, and emits CloudWatch metrics through Embedded Metric Format (EMF).
+`cwproxy` is an HTTP reverse proxy written in Go. It forwards traffic to a local application, writes structured access logs to stdout and CloudWatch Logs, and emits EMF metrics to stdout and CloudWatch Logs.
 
 When available, logs must include auto-detected AWS runtime metadata for EC2, ECS, and EKS.
 
@@ -76,6 +76,7 @@ Examples:
 Logs are emitted after each request/response pair is matched.
 
 - Stdout log entries are minified single-line JSON with a stable field order.
+- Stdout traffic and health log entries must also carry EMF fields when metrics are emitted with the log event.
 - CloudWatch request log entries use the same JSON payload, but insert a newline immediately after `_q` to improve readability in the CloudWatch console.
 - CloudWatch traffic log entries may also include EMF metric fields and an `_aws` envelope in the same event.
 - Health EMF events are written to `HEALTH_LOG_GROUP_NAME`, not `LOG_GROUP_NAME`.
@@ -185,7 +186,7 @@ Rules:
 
 - `HealthStatus` and `HealthLatency` must always use the `{AppName, Endpoint}` dimension set.
 - Health logs must include request details, response details, and the response body when available.
-- Health logs and health metrics should be emitted together in the same CloudWatch Logs event when possible.
+- Health logs and health metrics should be emitted together in the same stdout and CloudWatch Logs event when possible.
 
 ---
 

@@ -1,6 +1,6 @@
 # cwproxy
 
-`cwproxy` is a small Go reverse proxy for applications that already run on the same host or in the same shared network namespace. It listens on `PROXY_PORT`, forwards traffic to `127.0.0.1:APP_PORT`, writes structured JSON logs to stdout, and can also deliver request logs, health logs, and EMF metrics to CloudWatch Logs.
+`cwproxy` is a small Go reverse proxy for applications that already run on the same host or in the same shared network namespace. It listens on `PROXY_PORT`, forwards traffic to `127.0.0.1:APP_PORT`, writes structured JSON logs to stdout, and delivers EMF metrics to stdout and CloudWatch Logs.
 
 The project is built around operational safety:
 
@@ -15,7 +15,7 @@ Detailed performance notes are in [PERFORMANCE.md](PERFORMANCE.md).
 ## Features
 
 - Reverse proxies HTTP traffic to `http://127.0.0.1:{APP_PORT}`
-- Emits minified JSON access logs to stdout
+- Emits minified JSON access logs and EMF metrics to stdout
 - Emits CloudWatch traffic logs and EMF metrics in the same log event
 - Emits health logs and health EMF metrics to a separate log group
 - Publishes traffic metrics under `app/traffic`
@@ -45,11 +45,12 @@ At runtime:
 
 Traffic log output:
 
-- stdout: single-line minified JSON
+- stdout: single-line minified JSON, with EMF fields attached when traffic metrics are emitted
 - CloudWatch log group: `LOG_GROUP_NAME`
 
 Health log output:
 
+- stdout: single-line minified JSON, with EMF fields attached when health metrics are emitted
 - CloudWatch log group: `HEALTH_LOG_GROUP_NAME`
 - includes health response body when available
 
@@ -68,7 +69,7 @@ Health metrics:
 
 Important detail:
 
-- metrics are sent through CloudWatch Embedded Metric Format in CloudWatch Logs
+- metrics are sent through CloudWatch Embedded Metric Format in stdout and CloudWatch Logs
 - `cwproxy` does not use `cloudwatch:PutMetricData`
 
 ## Configuration
@@ -99,7 +100,7 @@ CloudWatch behavior:
 - if neither env var is set, `cwproxy` falls back to region detection from runtime metadata
 - current metadata fallback covers EC2 instance identity region and ECS metadata-derived region
 - if no region can be resolved from env vars or metadata, CloudWatch delivery is disabled
-- stdout logging still works when CloudWatch delivery is disabled
+- stdout logging and stdout EMF metrics still work when CloudWatch delivery is disabled
 - if AWS config loading or CloudWatch sink initialization fails, the proxy keeps serving traffic and continues logging to stdout
 - AWS credentials still follow the normal AWS SDK default credential chain
 
