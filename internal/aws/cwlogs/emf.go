@@ -80,7 +80,7 @@ func marshalLogWithMetrics(entry logging.Entry, namespace string, data []metrics
 	return appendEMF(base, fields, envelope)
 }
 
-func marshalMetricEvent(appName, category, namespace string, timestamp int64, data []metrics.Datum) ([]byte, error) {
+func marshalMetricEvent(appName, category, namespace string, timestamp int64, data []metrics.Datum, newlineAfterSummary bool) ([]byte, error) {
 	fields, envelope, err := buildEMF(namespace, timestamp, data, reservedMetricRootKeys)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,11 @@ func marshalMetricEvent(appName, category, namespace string, timestamp int64, da
 	if err := writeJSONField(buffer, "_q", buildMetricSummary(appName, data)); err != nil {
 		return nil, err
 	}
-	buffer.WriteString(",\n")
+	if newlineAfterSummary {
+		buffer.WriteString(",\n")
+	} else {
+		buffer.WriteByte(',')
+	}
 	if err := writeJSONField(buffer, "_t", logging.NormalizeCategory(category)); err != nil {
 		return nil, err
 	}

@@ -149,7 +149,7 @@ func (s *Sink) Publish(ctx context.Context, data []metrics.Datum) error {
 	timestamp := time.Now().UnixMilli()
 	var combined error
 	for _, batch := range batches {
-		message, err := marshalMetricEvent(s.appName, category, namespace, timestamp, batch)
+		message, err := marshalMetricEvent(s.appName, category, namespace, timestamp, batch, true)
 		if err != nil {
 			combined = errors.Join(combined, err)
 			continue
@@ -204,7 +204,7 @@ func (s *Sink) logWithMetrics(ctx context.Context, entry logging.Entry, data []m
 	combined := s.enqueueMessage(ctx, message, timestamp)
 
 	for _, batch := range batches[1:] {
-		metricMessage, err := marshalMetricEvent(s.appName, entry.Type, namespace, timestamp, batch)
+		metricMessage, err := marshalMetricEvent(s.appName, entry.Type, namespace, timestamp, batch, true)
 		if err != nil {
 			combined = errors.Join(combined, err)
 			continue
