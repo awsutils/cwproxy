@@ -1,6 +1,6 @@
 ## Introduction
 
-`cwproxy` is an HTTP reverse proxy written in Go. It forwards traffic to a local application, writes structured access logs to stdout and CloudWatch Logs, and emits EMF metrics to stdout and CloudWatch Logs.
+`cwproxy` is an HTTP reverse proxy written in Go. It forwards traffic to a configured upstream application host and port, writes structured access logs to stdout and CloudWatch Logs, and emits EMF metrics to stdout and CloudWatch Logs.
 
 When available, logs must include auto-detected AWS runtime metadata for EC2, ECS, and EKS.
 
@@ -22,8 +22,8 @@ Normal mode is used when `cwproxy` is started without a target application comma
 
 In normal mode:
 
-- `cwproxy` must proxy traffic to the configured upstream application port using `APP_PORT`.
-- The upstream target remains the local application running behind the proxy.
+- `cwproxy` must proxy traffic to the configured upstream application host and port using `APP_HOST` and `APP_PORT`.
+- The default upstream target is `127.0.0.1:{APP_PORT}`, but `APP_HOST` may point at another reachable upstream host when needed.
 
 ### Inspector Mode
 
@@ -74,6 +74,14 @@ Child-process lifecycle rules in inspector mode:
 - Default: EKS deployment name, then ECS task family, then system hostname
 - Application identifier used in log output and metric dimensions.
 
+### `APP_HOST`
+
+- Default: `127.0.0.1`
+- Host used for the target application behind the reverse proxy.
+- `APP_HOST` must be used with `APP_PORT` when building the upstream proxy target.
+- `APP_HOST` must also be used as the default host for any `HEALTH_URLS` entry that omits a host.
+- `APP_HOST` must contain only the host portion and must not include a scheme, path, query, or port.
+
 ### `APP_PORT`
 
 - Default: `8080`
@@ -82,22 +90,22 @@ Child-process lifecycle rules in inspector mode:
 
 ### `HEALTH_URLS`
 
-- Default: `127.0.0.1:{APP_PORT}/health`
+- Default: `{APP_HOST}:{APP_PORT}/health`
 - Comma-separated list of health check endpoints.
 - Each entry may omit the protocol, host, or port. Missing values are resolved with the following defaults:
   - Protocol defaults to `http`.
-  - Host defaults to `127.0.0.1`.
+  - Host defaults to `APP_HOST`.
   - Port defaults to `APP_PORT` for the first entry, `80` for later `http` entries, and `443` for `https` entries.
 
 Examples:
 
 | Input | Resolved |
 | --- | --- |
-| `/health` | `http://127.0.0.1:{APP_PORT}/health` |
-| `:8081/health` | `http://127.0.0.1:8081/health` |
-| `/health,some.alb.example.com/healthz` | `http://127.0.0.1:{APP_PORT}/health` and `http://some.alb.example.com:80/healthz` |
-| `/healthz,some.alb.example.com` | `http://127.0.0.1:{APP_PORT}/healthz` and `http://some.alb.example.com:80/healthz` |
-| `/healthz,https://some.alb.example.com` | `http://127.0.0.1:{APP_PORT}/healthz` and `https://some.alb.example.com:443/healthz` |
+| `/health` | `http://{APP_HOST}:{APP_PORT}/health` |
+| `:8081/health` | `http://{APP_HOST}:8081/health` |
+| `/health,some.alb.example.com/healthz` | `http://{APP_HOST}:{APP_PORT}/health` and `http://some.alb.example.com:80/healthz` |
+| `/healthz,some.alb.example.com` | `http://{APP_HOST}:{APP_PORT}/healthz` and `http://some.alb.example.com:80/healthz` |
+| `/healthz,https://some.alb.example.com` | `http://{APP_HOST}:{APP_PORT}/healthz` and `https://some.alb.example.com:443/healthz` |
 
 ### `LOG_GROUP_NAME`
 

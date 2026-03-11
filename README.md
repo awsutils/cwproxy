@@ -1,10 +1,10 @@
 # cwproxy
 
-`cwproxy` is a small Go reverse proxy for applications that already run on the same host or in the same shared network namespace. It listens on `PROXY_PORT`, forwards traffic to `127.0.0.1:APP_PORT`, writes structured JSON logs to stdout, and delivers EMF metrics to stdout and CloudWatch Logs.
+`cwproxy` is a small Go reverse proxy for applications that run on a reachable upstream host. It listens on `PROXY_PORT`, forwards traffic to `APP_HOST:APP_PORT`, writes structured JSON logs to stdout, and delivers EMF metrics to stdout and CloudWatch Logs.
 
 It supports two execution modes:
 
-- normal mode: proxy an already-running local application on `APP_PORT`
+- normal mode: proxy an already-running application on `APP_HOST:APP_PORT`
 - inspector mode: start the target application as a child process, detect its listen port automatically, and proxy it without requiring `APP_PORT`
 
 The project is built around operational safety:
@@ -19,7 +19,7 @@ Detailed performance notes are in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## Features
 
-- Reverse proxies HTTP traffic to `http://127.0.0.1:{APP_PORT}`
+- Reverse proxies HTTP traffic to `http://{APP_HOST}:{APP_PORT}`
 - Supports inspector mode to launch the target process and auto-detect its listen port
 - Emits minified JSON access logs and EMF metrics to stdout
 - Emits CloudWatch traffic logs and EMF metrics in the same log event
@@ -33,17 +33,18 @@ Detailed performance notes are in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## How It Works
 
-`cwproxy` is not a general upstream router. The upstream target is always a loopback address on the local host.
+`cwproxy` is not a general upstream router. The upstream target is one configured host and port.
 
 That means the normal deployment patterns are:
 
-- host deployment beside a local application process
+- host deployment beside a local application process using the default `APP_HOST=127.0.0.1`
 - sidecar-style deployment where the application shares the same network namespace
+- deployments that point `APP_HOST` at another reachable host when loopback is not the right upstream address
 
 At runtime in normal mode:
 
 1. `cwproxy` listens on `PROXY_PORT`
-2. it proxies requests to `127.0.0.1:APP_PORT`
+2. it proxies requests to `APP_HOST:APP_PORT`
 3. it logs request and response details to stdout
 4. if AWS region and credentials are available, it also writes CloudWatch traffic logs and health logs
 5. health probes run on a fixed 30 second interval
@@ -100,9 +101,10 @@ Environment variables:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PROXY_PORT` | `8081` | Port that `cwproxy` listens on |
-| `APP_PORT` | `8080` | Local upstream application port. In inspector mode, this overrides automatic listen-port detection when explicitly set |
+| `APP_HOST` | `127.0.0.1` | Upstream application host used for proxying and as the default host for omitted `HEALTH_URLS` hosts |
+| `APP_PORT` | `8080` | Upstream application port. In inspector mode, this overrides automatic listen-port detection when explicitly set |
 | `APP_NAME` | EKS deployment name, then ECS task family, then hostname, then `cwproxy` | Application name used in logs and metric dimensions |
-| `HEALTH_URLS` | `127.0.0.1:{APP_PORT}/health` | Comma-separated health endpoints |
+| `HEALTH_URLS` | `{APP_HOST}:{APP_PORT}/health` | Comma-separated health endpoints |
 | `LOG_GROUP_NAME` | `/app/log/{APP_NAME}` | CloudWatch Logs group for traffic logs and traffic EMF |
 | `HEALTH_LOG_GROUP_NAME` | `/app/log/{APP_NAME}/health` | CloudWatch Logs group for health logs and health EMF |
 | `AWS_REGION` | unset | Preferred AWS region override |
@@ -139,7 +141,7 @@ Each `HEALTH_URLS` entry may omit scheme, host, port, or path.
 Resolution rules:
 
 - default scheme: `http`
-- default host: `127.0.0.1`
+- default host: `APP_HOST`
 - default port for the first `http` entry: `APP_PORT`
 - default port for later `http` entries: `80`
 - default port for `https` entries: `443`
@@ -149,11 +151,11 @@ Examples:
 
 | Input | Resolved |
 | --- | --- |
-| `/health` | `http://127.0.0.1:{APP_PORT}/health` |
-| `:8081/health` | `http://127.0.0.1:8081/health` |
-| `/health,some.alb.example.com/healthz` | `http://127.0.0.1:{APP_PORT}/health` and `http://some.alb.example.com:80/healthz` |
-| `/healthz,some.alb.example.com` | `http://127.0.0.1:{APP_PORT}/healthz` and `http://some.alb.example.com:80/healthz` |
-| `/healthz,https://some.alb.example.com` | `http://127.0.0.1:{APP_PORT}/healthz` and `https://some.alb.example.com:443/healthz` |
+| `/health` | `http://{APP_HOST}:{APP_PORT}/health` |
+| `:8081/health` | `http://{APP_HOST}:8081/health` |
+| `/health,some.alb.example.com/healthz` | `http://{APP_HOST}:{APP_PORT}/health` and `http://some.alb.example.com:80/healthz` |
+| `/healthz,some.alb.example.com` | `http://{APP_HOST}:{APP_PORT}/healthz` and `http://some.alb.example.com:80/healthz` |
+| `/healthz,https://some.alb.example.com` | `http://{APP_HOST}:{APP_PORT}/healthz` and `https://some.alb.example.com:443/healthz` |
 
 ## Required AWS Permissions
 
@@ -202,7 +204,7 @@ Inbound:
 
 Outbound:
 
-- `cwproxy` must be able to reach `127.0.0.1:APP_PORT`
+- `cwproxy` must be able to reach `APP_HOST:APP_PORT`
 - `cwproxy` must be able to reach every resolved `HEALTH_URLS` endpoint
 - if AWS delivery is enabled, `cwproxy` must be able to reach the regional CloudWatch Logs endpoint
 
@@ -281,7 +283,7 @@ The container image:
 - copies prebuilt Linux binaries into the image
 - does not compile Go code inside Docker
 
-The container image expects the upstream app to be reachable on `127.0.0.1:{APP_PORT}` from inside the same network namespace.
+The container image expects the upstream app to be reachable on `APP_HOST:{APP_PORT}` from inside the container's network view.
 
 Linux host-network example:
 
@@ -302,7 +304,7 @@ Kubernetes guidance:
 
 - run `cwproxy` as a sidecar when the application is in the same Pod
 - point clients or the Service at the `cwproxy` container port
-- keep the application listening on `127.0.0.1:{APP_PORT}` or otherwise reachable on loopback inside the Pod network namespace
+- keep the application reachable at `APP_HOST:{APP_PORT}` from inside the Pod network namespace
 
 ## Local Run
 

@@ -13,6 +13,7 @@ import (
 
 const (
 	DefaultProxyPort      = 8081
+	DefaultAppHost        = "127.0.0.1"
 	DefaultAppPort        = 8080
 	DefaultHealthPath     = "/health"
 	DefaultHealthInterval = 30 * time.Second
@@ -21,6 +22,7 @@ const (
 
 type Config struct {
 	ProxyPort          int
+	AppHost            string
 	AppPort            int
 	AppName            string
 	LogGroupName       string
@@ -39,6 +41,11 @@ func Load() (Config, error) {
 }
 
 func LoadFromEnv(lookupEnv lookupEnvFunc, hostname hostnameFunc) (Config, error) {
+	appHost, err := parseHostEnv(lookupEnv, "APP_HOST", DefaultAppHost)
+	if err != nil {
+		return Config{}, err
+	}
+
 	appPort, err := parsePortEnv(lookupEnv, "APP_PORT", DefaultAppPort)
 	if err != nil {
 		return Config{}, err
@@ -58,7 +65,7 @@ func LoadFromEnv(lookupEnv lookupEnvFunc, hostname hostnameFunc) (Config, error)
 	}
 
 	rawHealthURLs := strings.TrimSpace(envOrDefault(lookupEnv, "HEALTH_URLS", ""))
-	healthURLs, err := ResolveHealthURLs(rawHealthURLs, appPort)
+	healthURLs, err := ResolveHealthURLs(rawHealthURLs, appHost, appPort)
 	if err != nil {
 		return Config{}, err
 	}
@@ -74,13 +81,14 @@ func LoadFromEnv(lookupEnv lookupEnvFunc, hostname hostnameFunc) (Config, error)
 
 	return Config{
 		ProxyPort:          proxyPort,
+		AppHost:            appHost,
 		AppPort:            appPort,
 		AppName:            appName,
 		LogGroupName:       logGroupName,
 		HealthLogGroupName: healthLogGroupName,
 		TargetURL: &url.URL{
 			Scheme: "http",
-			Host:   net.JoinHostPort("127.0.0.1", strconv.Itoa(appPort)),
+			Host:   net.JoinHostPort(appHost, strconv.Itoa(appPort)),
 		},
 		HealthURLs:       healthURLs,
 		HealthInterval:   DefaultHealthInterval,
@@ -88,10 +96,10 @@ func LoadFromEnv(lookupEnv lookupEnvFunc, hostname hostnameFunc) (Config, error)
 	}, nil
 }
 
-func ResolveHealthURLs(raw string, appPort int) ([]*url.URL, error) {
+func ResolveHealthURLs(raw, appHost string, appPort int) ([]*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		raw = fmt.Sprintf("127.0.0.1:%d%s", appPort, DefaultHealthPath)
+		raw = net.JoinHostPort(appHost, strconv.Itoa(appPort)) + DefaultHealthPath
 	}
 
 	parts := strings.Split(raw, ",")
@@ -126,7 +134,7 @@ func ResolveHealthURLs(raw string, appPort int) ([]*url.URL, error) {
 
 		host := partial.Host
 		if host == "" {
-			host = "127.0.0.1"
+			host = appHost
 		}
 
 		port := partial.Port
@@ -174,6 +182,23 @@ func parsePortEnv(lookupEnv lookupEnvFunc, key string, fallback int) (int, error
 		return 0, fmt.Errorf("%s must be between 1 and 65535", key)
 	}
 	return port, nil
+}
+
+func parseHostEnv(lookupEnv lookupEnvFunc, key, fallback string) (string, error) {
+	raw := strings.TrimSpace(envOrDefault(lookupEnv, key, fallback))
+	if raw == "" {
+		raw = fallback
+	}
+	if strings.HasPrefix(raw, "[") && strings.HasSuffix(raw, "]") {
+		raw = strings.TrimPrefix(strings.TrimSuffix(raw, "]"), "[")
+	}
+	if strings.Contains(raw, "://") || strings.ContainsAny(raw, "/?#@") {
+		return "", fmt.Errorf("%s must be a bare host without scheme, path, query, or user info", key)
+	}
+	if _, _, err := net.SplitHostPort(raw); err == nil {
+		return "", fmt.Errorf("%s must not include a port", key)
+	}
+	return raw, nil
 }
 
 func envOrDefault(lookupEnv lookupEnvFunc, key, fallback string) string {
