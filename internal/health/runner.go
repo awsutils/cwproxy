@@ -105,29 +105,53 @@ func (r *Runner) probeAll(ctx context.Context) {
 	}
 
 	var waitGroup sync.WaitGroup
-	waitGroup.Add(len(r.endpoints))
-
 	for _, endpoint := range r.endpoints {
 		current := endpoint
+		waitGroup.Add(1)
 		go func() {
 			defer waitGroup.Done()
-			r.probeEndpoint(ctx, current)
+			r.probeEndpointSafely(ctx, current)
 		}()
 	}
 
 	waitGroup.Wait()
 }
 
+func (r *Runner) probeEndpointSafely(ctx context.Context, endpoint *url.URL) {
+	defer func() {
+		if recovered := recover(); recovered != nil && r.reporter != nil {
+			r.reporter("health probe panic recovered for %s: %v", endpointString(endpoint), recovered)
+		}
+	}()
+
+	if endpoint == nil {
+		if r.reporter != nil {
+			r.reporter("health probe skipped nil endpoint")
+		}
+		return
+	}
+
+	r.probeEndpoint(ctx, endpoint)
+}
+
 func (r *Runner) probeEndpoint(ctx context.Context, endpoint *url.URL) {
+	if endpoint == nil {
+		if r.reporter != nil {
+			r.reporter("health probe skipped nil endpoint")
+		}
+		return
+	}
+
+	endpointURL := endpoint.String()
 	start := r.now()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpointURL, nil)
 	if err != nil {
 		r.emit(ctx, buildHealthEntry(r.appName, r.metadata, endpoint, start, start, logging.Response{
 			Status: 0,
 			Body:   err.Error(),
 		}), 0, 0)
 		if r.reporter != nil {
-			r.reporter("failed to build health request for %s: %v", endpoint.String(), err)
+			r.reporter("failed to build health request for %s: %v", endpointURL, err)
 		}
 		return
 	}
@@ -140,7 +164,7 @@ func (r *Runner) probeEndpoint(ctx context.Context, endpoint *url.URL) {
 			Body:   err.Error(),
 		}), 0, float64(end.Sub(start))/float64(time.Millisecond))
 		if r.reporter != nil {
-			r.reporter("health check failed for %s: %v", endpoint.String(), err)
+			r.reporter("health check failed for %s: %v", endpointURL, err)
 		}
 		return
 	}
@@ -149,7 +173,7 @@ func (r *Runner) probeEndpoint(ctx context.Context, endpoint *url.URL) {
 	body, truncated, readErr := readBody(response.Body, r.maxCaptureBytes)
 	_ = response.Body.Close()
 	if readErr != nil && r.reporter != nil {
-		r.reporter("failed to read health response body for %s: %v", endpoint.String(), readErr)
+		r.reporter("failed to read health response body for %s: %v", endpointURL, readErr)
 	}
 
 	status := 0.0
@@ -212,11 +236,18 @@ func (r *Runner) emit(ctx context.Context, entry logging.Entry, status, latency 
 }
 
 func buildHealthEntry(appName string, metadata *metadata.Snapshot, endpoint *url.URL, start, end time.Time, response logging.Response) logging.Entry {
-	host := endpoint.Hostname()
+	host := ""
 	port := defaultPort(endpoint)
-	path := endpoint.Path
-	if path == "" {
-		path = "/"
+	path := "/"
+	endpointURL := ""
+	queries := map[string]any{}
+	if endpoint != nil {
+		host = endpoint.Hostname()
+		if endpoint.Path != "" {
+			path = endpoint.Path
+		}
+		endpointURL = endpoint.String()
+		queries = logging.NormalizeValues(endpoint.Query())
 	}
 
 	entry := logging.NewHealthEntry(
@@ -227,8 +258,8 @@ func buildHealthEntry(appName string, metadata *metadata.Snapshot, endpoint *url
 			Port:    port,
 			Path:    path,
 			Method:  http.MethodGet,
-			URL:     endpoint.String(),
-			Queries: logging.NormalizeValues(endpoint.Query()),
+			URL:     endpointURL,
+			Queries: queries,
 		},
 		logging.Response{
 			Time:       end.UnixMilli(),
@@ -241,6 +272,13 @@ func buildHealthEntry(appName string, metadata *metadata.Snapshot, endpoint *url
 	)
 	entry.Metadata = metadata
 	return entry
+}
+
+func endpointString(endpoint *url.URL) string {
+	if endpoint == nil {
+		return "<nil>"
+	}
+	return endpoint.String()
 }
 
 func readBody(body io.ReadCloser, maxCaptureBytes int) ([]byte, bool, error) {

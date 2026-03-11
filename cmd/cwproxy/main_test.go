@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -149,6 +150,40 @@ func TestWaitForInspectorPortFailsWhenChildExitsBeforeListening(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "before listen port detection") {
 		t.Fatalf("waitForInspectorPort() error = %v, want startup exit message", err)
+	}
+}
+
+func TestCleanupInspectorStartupFailureStopsChild(t *testing.T) {
+	t.Parallel()
+
+	manifestPath := filepath.Join(t.TempDir(), "ports.txt")
+	child := startMainHelper(t, "listen", manifestPath, "0", "5000", "1")
+
+	got := cleanupInspectorStartupFailure(child, nil, errors.New("startup failed"))
+	if got == nil || !strings.Contains(got.Error(), "startup failed") {
+		t.Fatalf("cleanupInspectorStartupFailure() error = %v", got)
+	}
+
+	select {
+	case <-child.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for child to exit after startup cleanup")
+	}
+}
+
+func TestCleanupInspectorStartupFailureLeavesExitedChildUntouched(t *testing.T) {
+	t.Parallel()
+
+	child := startMainHelper(t, "exit", "0")
+	<-child.Done()
+
+	startupErr := errors.New("startup failed")
+	got := cleanupInspectorStartupFailure(child, nil, startupErr)
+	if !errors.Is(got, startupErr) {
+		t.Fatalf("cleanupInspectorStartupFailure() error = %v, want startup error", got)
+	}
+	if strings.Contains(got.Error(), "stop inspector child") {
+		t.Fatalf("cleanupInspectorStartupFailure() unexpectedly wrapped child stop error: %v", got)
 	}
 }
 

@@ -143,6 +143,22 @@ func TestStdoutSinkLogWithMetricsEmbedsEMFOnOneLine(t *testing.T) {
 	}
 }
 
+func TestStdoutSinkDefaultsNilWriterToDiscard(t *testing.T) {
+	t.Parallel()
+
+	sink := NewStdoutSink(nil)
+	entry := logging.NewEntry(
+		"cwproxy",
+		logging.Request{Method: http.MethodGet, Path: "/health"},
+		logging.Response{Status: http.StatusOK},
+		time.Millisecond,
+	)
+
+	if err := sink.Log(context.Background(), entry); err != nil {
+		t.Fatalf("Log returned error: %v", err)
+	}
+}
+
 func TestStdoutSinkLogHealthWithMetricsIncludesResponseBody(t *testing.T) {
 	t.Parallel()
 

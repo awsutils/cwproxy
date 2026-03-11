@@ -16,6 +16,9 @@ type StdoutSink struct {
 }
 
 func NewStdoutSink(writer io.Writer) *StdoutSink {
+	if writer == nil {
+		writer = io.Discard
+	}
 	return &StdoutSink{w: writer}
 }
 

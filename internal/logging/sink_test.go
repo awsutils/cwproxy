@@ -72,6 +72,22 @@ func TestStdoutSinkReturnsWriterErrors(t *testing.T) {
 	}
 }
 
+func TestStdoutSinkDefaultsNilWriterToDiscard(t *testing.T) {
+	t.Parallel()
+
+	entry := NewEntry(
+		"cwproxy",
+		Request{Method: "GET", Path: "/health"},
+		Response{Status: 200},
+		0,
+	)
+
+	sink := NewStdoutSink(nil)
+	if err := sink.Log(context.Background(), entry); err != nil {
+		t.Fatalf("Log returned error: %v", err)
+	}
+}
+
 func TestMultiSinkAggregatesErrorsAcrossOperations(t *testing.T) {
 	t.Parallel()
 

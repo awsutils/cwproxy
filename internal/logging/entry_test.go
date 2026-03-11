@@ -104,6 +104,24 @@ func TestParseBody(t *testing.T) {
 	}
 }
 
+func TestParseBodyFallsBackWhenXMLDepthExceeded(t *testing.T) {
+	t.Parallel()
+
+	var builder strings.Builder
+	for index := 0; index < maxXMLParseDepth+1; index++ {
+		_, _ = fmt.Fprintf(&builder, "<n%d>", index)
+	}
+	for index := maxXMLParseDepth; index >= 0; index-- {
+		_, _ = fmt.Fprintf(&builder, "</n%d>", index)
+	}
+
+	raw := builder.String()
+	parsed := ParseBody("application/xml", []byte(raw), false)
+	if parsed != raw {
+		t.Fatalf("deep xml parse = %#v, want raw body fallback", parsed)
+	}
+}
+
 func TestNormalizeHelpers(t *testing.T) {
 	t.Parallel()
 

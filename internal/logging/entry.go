@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -29,9 +30,12 @@ type Entry struct {
 }
 
 const (
-	CategoryTraffic = "TRAFFIC"
-	CategoryHealth  = "HEALTH"
+	CategoryTraffic  = "TRAFFIC"
+	CategoryHealth   = "HEALTH"
+	maxXMLParseDepth = 64
 )
+
+var errXMLDepthExceeded = errors.New("xml nesting depth exceeded")
 
 type Duration float64
 
@@ -318,7 +322,7 @@ func parseXMLBody(body []byte) (any, error) {
 			continue
 		}
 
-		element, err := decodeXMLElement(decoder, start)
+		element, err := decodeXMLElement(decoder, start, 1)
 		if err != nil {
 			return nil, err
 		}
@@ -326,7 +330,11 @@ func parseXMLBody(body []byte) (any, error) {
 	}
 }
 
-func decodeXMLElement(decoder *xml.Decoder, start xml.StartElement) (any, error) {
+func decodeXMLElement(decoder *xml.Decoder, start xml.StartElement, depth int) (any, error) {
+	if depth > maxXMLParseDepth {
+		return nil, errXMLDepthExceeded
+	}
+
 	fields := make(map[string]any, len(start.Attr))
 	for _, attribute := range start.Attr {
 		fields["@"+xmlName(attribute.Name)] = attribute.Value
@@ -342,7 +350,7 @@ func decodeXMLElement(decoder *xml.Decoder, start xml.StartElement) (any, error)
 
 		switch value := token.(type) {
 		case xml.StartElement:
-			child, err := decodeXMLElement(decoder, value)
+			child, err := decodeXMLElement(decoder, value, depth+1)
 			if err != nil {
 				return nil, err
 			}

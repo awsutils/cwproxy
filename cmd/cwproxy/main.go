@@ -65,7 +65,7 @@ func run() error {
 		if _, found := os.LookupEnv("APP_PORT"); !found {
 			detectedPort, detectErr := waitForInspectorPort(context.Background(), child, signals, reporter.Printf)
 			if detectErr != nil {
-				return detectErr
+				return cleanupInspectorStartupFailure(child, reporter.Printf, detectErr)
 			}
 			reporter.Printf("inspector mode detected listen port %d for %q", detectedPort, child.Command())
 			lookupEnv = withEnvOverride(lookupEnv, "APP_PORT", strconv.Itoa(detectedPort))
@@ -76,7 +76,7 @@ func run() error {
 		return resolveDefaultAppName(runtimeMetadata, os.Hostname)
 	})
 	if err != nil {
-		return err
+		return cleanupInspectorStartupFailure(child, reporter.Printf, err)
 	}
 
 	stdoutSink := cwlogs.NewStdoutSink(os.Stdout)
@@ -359,6 +359,48 @@ func withEnvOverride(lookupEnv func(string) (string, bool), key, value string) f
 			return value, true
 		}
 		return lookupEnv(current)
+	}
+}
+
+func cleanupInspectorStartupFailure(child *inspector.Child, reporter func(string, ...any), startupErr error) error {
+	if startupErr == nil || child == nil {
+		return startupErr
+	}
+
+	if err := stopInspectorChild(child, 5*time.Second, reporter); err != nil {
+		return errors.Join(startupErr, fmt.Errorf("stop inspector child after startup failure: %w", err))
+	}
+	return startupErr
+}
+
+func stopInspectorChild(child *inspector.Child, timeout time.Duration, reporter func(string, ...any)) error {
+	if child == nil {
+		return nil
+	}
+	if _, exited := child.Result(); exited {
+		return nil
+	}
+	if reporter != nil {
+		reporter("stopping inspector child process %q after startup failure", child.Command())
+	}
+	if err := child.Kill(); err != nil {
+		if _, exited := child.Result(); exited {
+			return nil
+		}
+		return err
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-child.Done():
+		return nil
+	case <-timer.C:
+		return errors.New("timed out waiting for inspector child to exit")
 	}
 }
 

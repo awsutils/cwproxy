@@ -173,6 +173,101 @@ func TestProbeAllPublishesSuccessAndFailure(t *testing.T) {
 	}
 }
 
+func TestProbeAllSkipsNilEndpointAndContinues(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	endpoint, err := url.Parse(server.URL + "/health")
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+
+	publisher := &capturePublisher{}
+	reported := make([]string, 0, 1)
+	runner := NewRunner([]*url.URL{nil, endpoint}, publisher, Options{
+		AppName: "cwproxy",
+		Client:  server.Client(),
+		Reporter: func(format string, args ...any) {
+			reported = append(reported, format)
+		},
+	})
+
+	runner.probeAll(context.Background())
+
+	publisher.mu.Lock()
+	defer publisher.mu.Unlock()
+	if len(publisher.data) != 2 {
+		t.Fatalf("metric count = %d, want 2", len(publisher.data))
+	}
+	if len(reported) == 0 || !strings.Contains(reported[0], "skipped nil endpoint") {
+		t.Fatalf("reporter messages = %#v", reported)
+	}
+}
+
+func TestProbeAllRecoversWorkerPanic(t *testing.T) {
+	t.Parallel()
+
+	panicEndpoint, err := url.Parse("http://panic.invalid/health")
+	if err != nil {
+		t.Fatalf("Parse panic endpoint returned error: %v", err)
+	}
+	okEndpoint, err := url.Parse("http://ok.invalid/health")
+	if err != nil {
+		t.Fatalf("Parse ok endpoint returned error: %v", err)
+	}
+
+	publisher := &capturePublisher{}
+	reported := make([]string, 0, 1)
+	runner := NewRunner([]*url.URL{panicEndpoint, okEndpoint}, publisher, Options{
+		AppName: "cwproxy",
+		Client: &http.Client{
+			Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				if request.URL.Host == "panic.invalid" {
+					panic("transport exploded")
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header: http.Header{
+						"Content-Type": {"application/json"},
+					},
+					Body: io.NopCloser(strings.NewReader(`{"status":"ok"}`)),
+				}, nil
+			}),
+		},
+		Reporter: func(format string, args ...any) {
+			reported = append(reported, format)
+		},
+	})
+
+	runner.probeAll(context.Background())
+
+	publisher.mu.Lock()
+	defer publisher.mu.Unlock()
+	if len(publisher.data) != 2 {
+		t.Fatalf("metric count = %d, want 2", len(publisher.data))
+	}
+
+	statusCount := 0
+	for _, datum := range publisher.data {
+		if datum.Name == "HealthStatus" {
+			statusCount++
+			if datum.Dimensions["Endpoint"] != okEndpoint.String() {
+				t.Fatalf("status endpoint = %q, want %q", datum.Dimensions["Endpoint"], okEndpoint.String())
+			}
+		}
+	}
+	if statusCount != 1 {
+		t.Fatalf("status metric count = %d, want 1", statusCount)
+	}
+	if len(reported) == 0 || !strings.Contains(reported[0], "panic recovered") {
+		t.Fatalf("reporter messages = %#v", reported)
+	}
+}
+
 func TestProbeEndpointLogsResponseBodyWithMetrics(t *testing.T) {
 	t.Parallel()
 
