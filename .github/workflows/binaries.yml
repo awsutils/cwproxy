@@ -29,6 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist site
+          cp -R page/. site/
 
           targets=(
             "linux amd64"
@@ -63,82 +64,37 @@ jobs:
 
           (
             cd site
-            sha256sum * > SHA256SUMS
+            sha256sum cwproxy-* > SHA256SUMS
           )
 
-          cat > site/index.html <<'EOF'
-          <!doctype html>
-          <html lang="en">
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>cwproxy binaries</title>
-            <style>
-              :root {
-                color-scheme: light;
-                font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-                background: #f7f4eb;
-                color: #16202a;
-              }
-              body {
-                margin: 0;
-                background:
-                  radial-gradient(circle at top left, rgba(194, 136, 66, 0.18), transparent 32rem),
-                  linear-gradient(180deg, #f7f4eb 0%, #fffdf7 100%);
-              }
-              main {
-                max-width: 52rem;
-                margin: 0 auto;
-                padding: 4rem 1.5rem 5rem;
-              }
-              h1 {
-                font-size: clamp(2rem, 5vw, 3.5rem);
-                margin: 0 0 0.5rem;
-                letter-spacing: -0.05em;
-              }
-              p {
-                max-width: 42rem;
-                line-height: 1.6;
-              }
-              ul {
-                padding-left: 1.25rem;
-              }
-              li {
-                margin: 0.75rem 0;
-              }
-              a {
-                color: #0f5c6e;
-                font-weight: 600;
-                text-decoration-thickness: 0.12em;
-              }
-              code {
-                background: rgba(15, 92, 110, 0.08);
-                border-radius: 0.35rem;
-                padding: 0.15rem 0.35rem;
-              }
-            </style>
-          </head>
-          <body>
-            <main>
-              <h1>cwproxy</h1>
-              <p>Statically linked reverse proxy binaries built from every push.</p>
-              <ul>
-          EOF
+          python3 - <<'PY'
+          from pathlib import Path
 
-          for file in $(cd site && ls | sort); do
-            if [ "$file" = "index.html" ]; then
+          site = Path("site")
+          index_path = site / "index.html"
+          template = index_path.read_text(encoding="utf-8")
+
+          items = []
+          for path in sorted(site.iterdir(), key=lambda current: current.name):
+            if not path.is_file():
               continue
-            fi
-            printf '                <li><a href="%s">%s</a></li>\n' "$file" "$file" >> site/index.html
-          done
+            if path.name in {"index.html", "styles.css"}:
+              continue
 
-          cat >> site/index.html <<'EOF'
-              </ul>
-              <p>Checksums are published in <code>SHA256SUMS</code>. Raw binaries are published directly at the site root without archive compression.</p>
-            </main>
-          </body>
-          </html>
-          EOF
+            description = {
+              "SHA256SUMS": "Checksum manifest for every published binary.",
+            }.get(path.name, "Statically linked release binary.")
+
+            items.append(
+              f'''<article class="download-card">\n'''
+              f'''  <h3><a href="{path.name}">{path.name}</a></h3>\n'''
+              f'''  <p>{description}</p>\n'''
+              f'''</article>'''
+            )
+
+          rendered = template.replace("{{DOWNLOAD_ITEMS}}", "\n".join(items))
+          index_path.write_text(rendered, encoding="utf-8")
+          PY
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

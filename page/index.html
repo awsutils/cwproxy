@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cwproxy binaries</title>
+  <meta
+    name="description"
+    content="Download statically linked cwproxy binaries, verify checksums, and follow the quick-start guide for traffic proxying and inspector mode."
+  >
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <p class="eyebrow">GitHub Pages Distribution</p>
+      <h1>cwproxy</h1>
+      <p class="hero-copy">
+        <code>cwproxy</code> is a compact Go reverse proxy for local or sidecar applications.
+        It forwards traffic to a loopback upstream, emits structured logs, and publishes EMF metrics to stdout and CloudWatch Logs.
+      </p>
+      <div class="hero-actions">
+        <a class="button button-primary" href="#downloads">Download binaries</a>
+        <a class="button button-secondary" href="#quick-start">Quick start</a>
+      </div>
+    </header>
+
+    <main class="content">
+      <section class="panel panel-grid">
+        <article>
+          <h2>What you get</h2>
+          <ul class="feature-list">
+            <li>Static binaries built with <code>CGO_ENABLED=0</code>.</li>
+            <li>Platforms: Linux AMD64, Linux ARM64, Windows AMD64, Darwin AMD64, Darwin ARM64.</li>
+            <li>Raw binaries published directly at the site root with <code>SHA256SUMS</code>.</li>
+          </ul>
+        </article>
+        <article>
+          <h2>Typical use</h2>
+          <p>
+            Run `cwproxy` beside an application that already listens on loopback, or start that application through inspector mode and let `cwproxy` discover the listen port automatically.
+          </p>
+        </article>
+      </section>
+
+      <section class="panel" id="downloads">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Downloads</p>
+            <h2>Published artifacts</h2>
+          </div>
+          <p class="section-note">Choose the binary that matches your operating system and architecture. Use <code>SHA256SUMS</code> to verify integrity before running it.</p>
+        </div>
+        <div class="download-grid">
+{{DOWNLOAD_ITEMS}}
+        </div>
+      </section>
+
+      <section class="panel" id="quick-start">
+        <p class="eyebrow">How To Use</p>
+        <h2>Quick start guide</h2>
+        <ol class="step-list">
+          <li>
+            Download the matching binary for your OS and architecture.
+            On Linux or macOS, make it executable with <code>chmod +x ./cwproxy-*</code>.
+          </li>
+          <li>
+            Start your upstream app on loopback, then run `cwproxy` with the required environment variables:
+            <pre><code>PROXY_PORT=8081
+APP_PORT=8080
+APP_NAME=my-app
+HEALTH_URLS=/health
+./cwproxy-linux-amd64</code></pre>
+          </li>
+          <li>
+            Send traffic to <code>PROXY_PORT</code>. <code>cwproxy</code> forwards requests to <code>127.0.0.1:APP_PORT</code>, logs traffic to stdout, and emits EMF metrics to stdout and CloudWatch when AWS configuration is available.
+          </li>
+        </ol>
+      </section>
+
+      <section class="panel panel-grid">
+        <article>
+          <p class="eyebrow">Normal Mode</p>
+          <h2>Proxy an existing app</h2>
+          <pre><code>APP_PORT=8080
+PROXY_PORT=8081
+./cwproxy-linux-amd64</code></pre>
+          <p>Use this when your application is already running on <code>127.0.0.1:APP_PORT</code>.</p>
+        </article>
+        <article>
+          <p class="eyebrow">Inspector Mode</p>
+          <h2>Start and inspect the target app</h2>
+          <pre><code>PROXY_PORT=8081
+./cwproxy-linux-amd64 node ./server.js</code></pre>
+          <p>Use this when `cwproxy` should launch the target process and auto-detect its listening port.</p>
+        </article>
+      </section>
+
+      <section class="panel panel-grid">
+        <article>
+          <p class="eyebrow">Verify</p>
+          <h2>Checksum validation</h2>
+          <pre><code>sha256sum -c SHA256SUMS</code></pre>
+          <p>On Windows PowerShell, use `Get-FileHash` and compare the output with `SHA256SUMS`.</p>
+        </article>
+        <article>
+          <p class="eyebrow">Reference</p>
+          <h2>Operational notes</h2>
+          <ul class="feature-list compact">
+            <li><code>AWS_REGION</code> or runtime metadata enables CloudWatch delivery.</li>
+            <li>Health logs go to <code>/app/log/{APP_NAME}/health</code> by default.</li>
+            <li>Traffic paths that match <code>HEALTH_URLS</code> are suppressed from traffic logs.</li>
+          </ul>
+        </article>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
