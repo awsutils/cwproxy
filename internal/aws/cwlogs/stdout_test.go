@@ -132,6 +132,9 @@ func TestStdoutSinkLogWithMetricsEmbedsEMFOnOneLine(t *testing.T) {
 	if !strings.Contains(message, "\"_aws\"") {
 		t.Fatalf("EMF envelope missing from stdout event: %q", message)
 	}
+	if !strings.Contains(message, "\"_t\":\"TRAFFIC\"") {
+		t.Fatalf("traffic category missing from stdout event: %q", message)
+	}
 
 	payload := decodeEvent(t, message)
 	envelope := decodeEnvelope(t, payload)
@@ -146,7 +149,7 @@ func TestStdoutSinkLogHealthWithMetricsIncludesResponseBody(t *testing.T) {
 	buffer := &bytes.Buffer{}
 	sink := NewStdoutSink(buffer)
 
-	entry := logging.NewEntry(
+	entry := logging.NewHealthEntry(
 		"cwproxy",
 		logging.Request{
 			Method: http.MethodGet,
@@ -191,5 +194,11 @@ func TestStdoutSinkLogHealthWithMetricsIncludesResponseBody(t *testing.T) {
 	}
 	if !strings.Contains(message, "\"_aws\"") {
 		t.Fatalf("EMF envelope missing from stdout health event: %q", message)
+	}
+	if !strings.Contains(message, "\"_t\":\"HEALTH\"") {
+		t.Fatalf("health category missing from stdout health event: %q", message)
+	}
+	if !strings.Contains(message, "\"HealthStatus\":1") || !strings.Contains(message, "\"HealthLatency\":1") {
+		t.Fatalf("health metrics missing from stdout health event: %q", message)
 	}
 }

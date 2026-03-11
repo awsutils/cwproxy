@@ -207,6 +207,9 @@ func TestProbeEndpointLogsResponseBodyWithMetrics(t *testing.T) {
 	}
 
 	entry := sink.entries[0]
+	if entry.Type != logging.CategoryHealth {
+		t.Fatalf("entry type = %q, want %q", entry.Type, logging.CategoryHealth)
+	}
 	responseBody, ok := entry.Response.Body.(map[string]any)
 	if !ok || responseBody["status"] != "ok" {
 		t.Fatalf("response body = %#v", entry.Response.Body)
@@ -251,6 +254,9 @@ func TestProbeEndpointUsesReadErrorAsResponseBody(t *testing.T) {
 	defer sink.mu.Unlock()
 	if len(sink.entries) != 1 {
 		t.Fatalf("entry count = %d, want 1", len(sink.entries))
+	}
+	if sink.entries[0].Type != logging.CategoryHealth {
+		t.Fatalf("entry type = %q, want %q", sink.entries[0].Type, logging.CategoryHealth)
 	}
 	if sink.entries[0].Response.Body != "read failed" {
 		t.Fatalf("response body = %#v, want read error", sink.entries[0].Response.Body)

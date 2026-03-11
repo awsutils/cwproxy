@@ -138,6 +138,7 @@ Example stdout log entry:
 ```json
 {
   "_q": "{APP_NAME} {method} {path} {status} {delay}ms",
+  "_t": "TRAFFIC",
   "app_name": "{APP_NAME}",
   "aws_meta": {
     "ec2": {
@@ -184,6 +185,7 @@ Example stdout log entry:
 - `_q`: human-readable summary for quick filtering
 - `_q` format: `{APP_NAME} {METHOD} {PATH} {STATUS} {DELAY}ms`
 - If the request method is unavailable, `_q` must use `UNKNOWN`
+- `_t`: log category discriminator. It must be `TRAFFIC` for proxied request logs and `HEALTH` for health probe logs
 - `delay`: elapsed time in milliseconds as a JSON number with exactly three decimal places
 - `request.time` and `response.time`: Unix timestamps in milliseconds
 - `body`: parsed as an object when `Content-Type` is `application/json` or `application/x-www-form-urlencoded`; otherwise stored as a raw string

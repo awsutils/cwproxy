@@ -107,7 +107,7 @@ func TestSinkInitializesAndFlushesEvents(t *testing.T) {
 		t.Fatalf("PutLogEvents inputs = %#v", client.inputs)
 	}
 	message := *client.inputs[0].LogEvents[0].Message
-	if !strings.Contains(message, "\",\n\"app_name\"") {
+	if !strings.Contains(message, "\",\n\"_t\":\"TRAFFIC\",\"app_name\"") {
 		t.Fatalf("CloudWatch message missing summary newline: %q", message)
 	}
 }
@@ -241,6 +241,9 @@ func TestSinkLogWithMetricsEmbedsEMFInSingleEvent(t *testing.T) {
 	if !strings.Contains(message, "\"_aws\"") {
 		t.Fatalf("EMF envelope missing from CloudWatch log event: %q", message)
 	}
+	if !strings.Contains(message, "\"_t\":\"TRAFFIC\"") {
+		t.Fatalf("traffic category missing from CloudWatch log event: %q", message)
+	}
 	if !strings.Contains(message, "\"RequestCount\":1") {
 		t.Fatalf("RequestCount missing from CloudWatch log event: %q", message)
 	}
@@ -317,6 +320,9 @@ func TestSinkPublishEmitsMetricOnlyEMFEvent(t *testing.T) {
 	if !strings.Contains(message, "cwproxy METRIC HealthLatency,HealthStatus") {
 		t.Fatalf("metric summary missing from CloudWatch log event: %q", message)
 	}
+	if !strings.Contains(message, "\"_t\":\"HEALTH\"") {
+		t.Fatalf("health category missing from CloudWatch metric event: %q", message)
+	}
 	if !strings.Contains(message, "\"Endpoint\":\"http://127.0.0.1:8080/health\"") {
 		t.Fatalf("Endpoint missing from CloudWatch log event: %q", message)
 	}
@@ -354,7 +360,7 @@ func TestSinkLogHealthWithMetricsEmbedsResponseBody(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	entry := logging.NewEntry(
+	entry := logging.NewHealthEntry(
 		"cwproxy",
 		logging.Request{
 			Method: http.MethodGet,
@@ -417,6 +423,9 @@ func TestSinkLogHealthWithMetricsEmbedsResponseBody(t *testing.T) {
 	}
 	if !strings.Contains(message, "\"_aws\"") {
 		t.Fatalf("EMF envelope missing from health log event: %q", message)
+	}
+	if !strings.Contains(message, "\"_t\":\"HEALTH\"") {
+		t.Fatalf("health category missing from health log event: %q", message)
 	}
 }
 

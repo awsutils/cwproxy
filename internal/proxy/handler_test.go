@@ -157,6 +157,9 @@ func TestHandlerCapturesExchangeAndPublishesMetrics(t *testing.T) {
 	}
 
 	entry := sink.entries[0]
+	if entry.Type != logging.CategoryTraffic {
+		t.Fatalf("entry type = %q, want %q", entry.Type, logging.CategoryTraffic)
+	}
 	if entry.Request.Host != "example.com" {
 		t.Fatalf("request host = %q", entry.Request.Host)
 	}
@@ -248,6 +251,9 @@ func TestHandlerReturnsBadGatewayAndTracksErrors(t *testing.T) {
 	sink.mu.Lock()
 	entry := sink.entries[0]
 	sink.mu.Unlock()
+	if entry.Type != logging.CategoryTraffic {
+		t.Fatalf("entry type = %q, want %q", entry.Type, logging.CategoryTraffic)
+	}
 	if entry.Response.Status != http.StatusBadGateway {
 		t.Fatalf("entry response status = %d", entry.Response.Status)
 	}
@@ -304,6 +310,9 @@ func TestHandlerUsesMetricAwareSinkForCombinedEmission(t *testing.T) {
 	defer sink.mu.Unlock()
 	if len(sink.entries) != 1 {
 		t.Fatalf("entry count = %d, want 1", len(sink.entries))
+	}
+	if sink.entries[0].Type != logging.CategoryTraffic {
+		t.Fatalf("entry type = %q, want %q", sink.entries[0].Type, logging.CategoryTraffic)
 	}
 	if len(sink.metrics) != 1 {
 		t.Fatalf("metric batch count = %d, want 1", len(sink.metrics))
@@ -365,6 +374,9 @@ func TestHandlerRecoversFromProxyPanics(t *testing.T) {
 	}
 	entry := sink.entries[0]
 	sink.mu.Unlock()
+	if entry.Type != logging.CategoryTraffic {
+		t.Fatalf("entry type = %q, want %q", entry.Type, logging.CategoryTraffic)
+	}
 	if entry.Response.Status != http.StatusInternalServerError {
 		t.Fatalf("entry response status = %d", entry.Response.Status)
 	}

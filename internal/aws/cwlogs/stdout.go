@@ -60,7 +60,7 @@ func (s *StdoutSink) logWithMetrics(entry logging.Entry, data []metrics.Datum, n
 	combined := s.write(message)
 	timestamp := entryTimestamp(entry)
 	for _, batch := range batches[1:] {
-		metricMessage, err := marshalMetricEvent(entry.AppName, namespace, timestamp, batch)
+		metricMessage, err := marshalMetricEvent(entry.AppName, entry.Type, namespace, timestamp, batch)
 		if err != nil {
 			combined = errors.Join(combined, err)
 			continue

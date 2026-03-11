@@ -16,6 +16,7 @@ var (
 	reservedLogRootKeys = map[string]struct{}{
 		"_aws":     {},
 		"_q":       {},
+		"_t":       {},
 		"app_name": {},
 		"aws_meta": {},
 		"delay":    {},
@@ -25,6 +26,7 @@ var (
 	reservedMetricRootKeys = map[string]struct{}{
 		"_aws":     {},
 		"_q":       {},
+		"_t":       {},
 		"app_name": {},
 		"aws_meta": {},
 	}
@@ -77,7 +79,7 @@ func marshalLogWithMetrics(entry logging.Entry, namespace string, data []metrics
 	return appendEMF(base, fields, envelope)
 }
 
-func marshalMetricEvent(appName, namespace string, timestamp int64, data []metrics.Datum) ([]byte, error) {
+func marshalMetricEvent(appName, category, namespace string, timestamp int64, data []metrics.Datum) ([]byte, error) {
 	fields, envelope, err := buildEMF(namespace, timestamp, data, reservedMetricRootKeys)
 	if err != nil {
 		return nil, err
@@ -90,6 +92,10 @@ func marshalMetricEvent(appName, namespace string, timestamp int64, data []metri
 		return nil, err
 	}
 	buffer.WriteString(",\n")
+	if err := writeJSONField(buffer, "_t", logging.NormalizeCategory(category)); err != nil {
+		return nil, err
+	}
+	buffer.WriteByte(',')
 	if err := writeJSONField(buffer, "app_name", appName); err != nil {
 		return nil, err
 	}

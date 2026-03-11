@@ -65,7 +65,7 @@ Traffic log output:
 
 Health log output:
 
-- stdout: single-line minified JSON, with EMF fields attached when health metrics are emitted
+- stdout: single-line minified JSON, with health EMF fields attached when health metrics are emitted
 - CloudWatch log group: `HEALTH_LOG_GROUP_NAME`
 - includes health response body when available
 
@@ -85,6 +85,7 @@ Health metrics:
 Important detail:
 
 - metrics are sent through CloudWatch Embedded Metric Format in stdout and CloudWatch Logs
+- every structured log event includes `_t` with `TRAFFIC` or `HEALTH` so the category is explicit in stdout and CloudWatch
 - `cwproxy` does not use `cloudwatch:PutMetricData`
 
 ## Configuration

@@ -219,7 +219,7 @@ func buildHealthEntry(appName string, metadata *metadata.Snapshot, endpoint *url
 		path = "/"
 	}
 
-	entry := logging.NewEntry(
+	entry := logging.NewHealthEntry(
 		appName,
 		logging.Request{
 			Time:    start.UnixMilli(),

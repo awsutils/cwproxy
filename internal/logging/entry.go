@@ -17,6 +17,7 @@ import (
 
 type Entry struct {
 	Summary    string             `json:"_q"`
+	Type       string             `json:"_t"`
 	AppName    string             `json:"app_name"`
 	Metadata   *metadata.Snapshot `json:"aws_meta,omitempty"`
 	GlobalHash string             `json:"global_hash"`
@@ -24,6 +25,11 @@ type Entry struct {
 	Request    Request            `json:"request"`
 	Response   Response           `json:"response"`
 }
+
+const (
+	CategoryTraffic = "TRAFFIC"
+	CategoryHealth  = "HEALTH"
+)
 
 type Duration float64
 
@@ -52,8 +58,17 @@ type Response struct {
 }
 
 func NewEntry(appName string, request Request, response Response, delay time.Duration) Entry {
+	return newEntry(CategoryTraffic, appName, request, response, delay)
+}
+
+func NewHealthEntry(appName string, request Request, response Response, delay time.Duration) Entry {
+	return newEntry(CategoryHealth, appName, request, response, delay)
+}
+
+func newEntry(category, appName string, request Request, response Response, delay time.Duration) Entry {
 	delayValue := formatDelay(delay)
 	return Entry{
+		Type:     NormalizeCategory(category),
 		Summary:  buildSummary(appName, request.Method, request.Path, response.Status, delayValue),
 		AppName:  appName,
 		Delay:    delayValue,
@@ -173,10 +188,20 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 func ensureEntry(entry Entry) Entry {
 	entry.Request = ensureRequest(entry.Request)
 	entry.Response = ensureResponse(entry.Response)
+	entry.Type = NormalizeCategory(entry.Type)
 	if entry.GlobalHash == "" {
 		entry.GlobalHash = entryStructureHash(entry.Request, entry.Response)
 	}
 	return entry
+}
+
+func NormalizeCategory(category string) string {
+	switch strings.ToUpper(strings.TrimSpace(category)) {
+	case CategoryHealth:
+		return CategoryHealth
+	default:
+		return CategoryTraffic
+	}
 }
 
 func ensureRequest(request Request) Request {
