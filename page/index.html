@@ -3,116 +3,923 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>cwproxy binaries</title>
+  <title>cwproxy — Go reverse proxy with CloudWatch observability</title>
   <meta
     name="description"
-    content="Download statically linked cwproxy binaries, verify checksums, and follow the quick-start guide for traffic proxying and inspector mode."
+    content="cwproxy is a compact Go reverse proxy that forwards HTTP traffic, emits structured JSON logs with EMF metrics to stdout and CloudWatch, captures and parses request/response bodies, runs health checks, and retries upstream failures."
   >
   <link rel="stylesheet" href="styles.css">
+  <style>
+    /* ── capability grid (6-up) ─────────────────────────── */
+    .cap-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .cap-card {
+      padding: 20px;
+      border: 1px solid var(--panel-border);
+      border-radius: 18px;
+      background: linear-gradient(160deg, rgba(255,255,255,0.82), rgba(252,246,233,0.72));
+    }
+    .cap-icon {
+      font-size: 1.5rem;
+      line-height: 1;
+      margin-bottom: 10px;
+    }
+    .cap-card h3 {
+      margin: 0 0 6px;
+      font-size: 0.98rem;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+    .cap-card p {
+      margin: 0;
+      font-size: 0.85rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ── 3-column panel grid ────────────────────────────── */
+    .panel-3-grid {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    /* ── tags / badges ──────────────────────────────────── */
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 12px;
+    }
+    .tag {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      background: rgba(15, 93, 99, 0.09);
+      color: var(--brand-strong);
+      border: 1px solid rgba(15, 93, 99, 0.14);
+    }
+    .tag-warm {
+      background: rgba(182, 109, 47, 0.1);
+      color: #7a4018;
+      border-color: rgba(182, 109, 47, 0.2);
+    }
+
+    /* ── log example ────────────────────────────────────── */
+    .log-example {
+      margin-top: 18px;
+      padding: 20px;
+      overflow-x: auto;
+      border: 1px solid rgba(15, 93, 99, 0.12);
+      border-radius: 18px;
+      background: #1d262f;
+      color: #edf2f7;
+      font-family: "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 0.78rem;
+      line-height: 1.7;
+    }
+    .log-example .k { color: #7dd3d8; }
+    .log-example .v { color: #fbd38d; }
+    .log-example .s { color: #9ae6b4; }
+    .log-example .n { color: #f6ad55; }
+    .log-example .dim { opacity: 0.45; }
+
+    /* ── field table ─────────────────────────────────────── */
+    .field-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+      margin-top: 16px;
+    }
+    .field-table th {
+      padding: 8px 12px;
+      text-align: left;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 2px solid var(--panel-border);
+    }
+    .field-table td {
+      padding: 9px 12px;
+      vertical-align: top;
+      border-bottom: 1px solid var(--panel-border);
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .field-table td:first-child {
+      color: var(--ink);
+      font-family: "IBM Plex Mono", Consolas, monospace;
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+    .field-table td:nth-child(2) {
+      font-family: "IBM Plex Mono", Consolas, monospace;
+      font-size: 0.8rem;
+      color: var(--brand);
+      white-space: nowrap;
+    }
+    .field-table tr:last-child td {
+      border-bottom: none;
+    }
+    .field-table tr:hover td {
+      background: rgba(15, 93, 99, 0.03);
+    }
+    .field-group-head td {
+      padding-top: 16px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--brand);
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    /* ── callout / note ─────────────────────────────────── */
+    .callout {
+      margin-top: 16px;
+      padding: 14px 18px;
+      border-left: 3px solid var(--brand);
+      border-radius: 0 12px 12px 0;
+      background: rgba(15, 93, 99, 0.06);
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+    .callout-warm {
+      border-color: var(--warm);
+      background: rgba(182, 109, 47, 0.07);
+    }
+    .callout strong {
+      color: var(--ink);
+    }
+
+    /* ── metric cards ───────────────────────────────────── */
+    .metric-group {
+      margin-top: 14px;
+    }
+    .metric-group + .metric-group {
+      margin-top: 20px;
+    }
+    .metric-group-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--brand);
+      margin-bottom: 8px;
+    }
+    .metric-pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+    .metric-pill {
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-family: "IBM Plex Mono", Consolas, monospace;
+      background: rgba(255,255,255,0.75);
+      border: 1px solid var(--panel-border);
+      color: var(--ink);
+    }
+    .metric-pill .unit {
+      margin-left: 4px;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+
+    /* ── two-col text layout ────────────────────────────── */
+    .two-col-text {
+      display: grid;
+      gap: 0 32px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    /* ── section dividers ───────────────────────────────── */
+    .panel article {
+      padding-top: 0;
+    }
+    .panel article + article {
+      padding-top: 20px;
+      border-top: 1px solid var(--panel-border);
+      margin-top: 20px;
+    }
+
+    /* ── inline description list ─────────────────────────── */
+    dl.inline-dl {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 16px;
+      margin: 12px 0 0;
+      font-size: 0.875rem;
+    }
+    dl.inline-dl dt {
+      font-family: "IBM Plex Mono", Consolas, monospace;
+      font-size: 0.8rem;
+      color: var(--brand-strong);
+      padding-top: 1px;
+      white-space: nowrap;
+    }
+    dl.inline-dl dd {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    /* ── health url examples ─────────────────────────────── */
+    .url-examples {
+      margin-top: 14px;
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .url-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 0 12px;
+      align-items: center;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--panel-border);
+      font-size: 0.82rem;
+    }
+    .url-row:last-child {
+      border-bottom: none;
+    }
+    .url-row:nth-child(even) {
+      background: rgba(255,255,255,0.45);
+    }
+    .url-row .input-cell {
+      font-family: "IBM Plex Mono", Consolas, monospace;
+      color: var(--ink);
+    }
+    .url-row .arrow {
+      color: var(--brand);
+      font-size: 0.9rem;
+      text-align: center;
+    }
+    .url-row .output-cell {
+      font-family: "IBM Plex Mono", Consolas, monospace;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    /* ── deployment cards ───────────────────────────────── */
+    .deploy-card {
+      padding: 18px;
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.55);
+    }
+    .deploy-card h4 {
+      margin: 0 0 8px;
+      font-size: 0.9rem;
+      letter-spacing: -0.01em;
+    }
+    .deploy-card p {
+      margin: 0 0 4px;
+      font-size: 0.84rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .deploy-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 16px;
+    }
+
+    /* ── safety list ─────────────────────────────────────── */
+    .safety-list {
+      list-style: none;
+      margin: 12px 0 0;
+      padding: 0;
+    }
+    .safety-list li {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--panel-border);
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .safety-list li:last-child {
+      border-bottom: none;
+    }
+    .safety-list .check {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(15, 93, 99, 0.12);
+      color: var(--brand);
+      font-size: 0.72rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+    }
+
+    /* ── responsive ─────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .cap-grid,
+      .panel-3-grid,
+      .deploy-grid,
+      .two-col-text {
+        grid-template-columns: 1fr;
+      }
+      .url-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .url-row .arrow {
+        display: none;
+      }
+    }
+    @media (max-width: 760px) {
+      dl.inline-dl {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 </head>
 <body>
   <div class="page-shell">
+
+    <!-- ═══════════════════════════════ HERO ═══════════════════════════════ -->
     <header class="hero">
-      <p class="eyebrow">GitHub Pages Distribution</p>
+      <p class="eyebrow">Go Reverse Proxy · CloudWatch Logs · EMF Metrics</p>
       <h1>cwproxy</h1>
       <p class="hero-copy">
-        <code>cwproxy</code> is a compact Go reverse proxy for local or sidecar applications.
-        It forwards traffic to a loopback upstream, emits structured logs, and publishes EMF metrics to stdout and CloudWatch Logs.
+        A compact, operationally safe reverse proxy for local and sidecar deployments.
+        It forwards HTTP traffic to an upstream app, emits structured JSON logs with
+        embedded EMF metrics to stdout and CloudWatch Logs, parses and captures request
+        and response bodies, runs configurable health checks, and retries upstream failures —
+        all with bounded memory use and graceful degradation when AWS is unavailable.
       </p>
       <div class="hero-actions">
         <a class="button button-primary" href="#downloads">Download binaries</a>
         <a class="button button-secondary" href="#quick-start">Quick start</a>
+        <a class="button button-secondary" href="#config">Configuration</a>
       </div>
     </header>
 
     <main class="content">
+
+      <!-- ═══════════════════ CAPABILITY OVERVIEW ═══════════════════════ -->
+      <section class="panel">
+        <p class="eyebrow">Capabilities</p>
+        <h2>Everything in one binary</h2>
+        <div class="cap-grid" style="margin-top:20px">
+          <div class="cap-card">
+            <div class="cap-icon">⇄</div>
+            <h3>Reverse Proxy</h3>
+            <p>Forwards HTTP traffic to a single upstream host and port. Preserves inbound X-Forwarded-For headers and sets X-Forwarded-* on outgoing requests.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon">🔍</div>
+            <h3>Inspector Mode</h3>
+            <p>Starts the target as a child process and auto-detects its listen port. Forwards signals and exits with the child's exit code.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon">📋</div>
+            <h3>Structured Logging</h3>
+            <p>Single-line minified JSON per request. Captures bodies, parses JSON/form/XML, computes structural shape hashes, logs headers and cookies.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon">☁</div>
+            <h3>CloudWatch Delivery</h3>
+            <p>Async bounded queue with batching, 2-second flush interval, and automatic retry on ThrottlingException. Separate log groups for traffic and health.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon">📊</div>
+            <h3>EMF Metrics</h3>
+            <p>Embedded Metric Format emitted to stdout and CloudWatch. Traffic and health metric namespaces with per-endpoint dimensions. No PutMetricData needed.</p>
+          </div>
+          <div class="cap-card">
+            <div class="cap-icon">♻</div>
+            <h3>Upstream Retry</h3>
+            <p>Configurable retry policy with exponential backoff, per-method and per-status-code eligibility, and request-body replay for buffered bodies.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════ EXECUTION MODES ══════════════════════════ -->
       <section class="panel panel-grid">
         <article>
-          <h2>What you get</h2>
-          <ul class="feature-list">
-            <li>Static binaries built with <code>CGO_ENABLED=0</code>.</li>
-            <li>Platforms: Linux AMD64, Linux ARM64, Windows AMD64, Darwin AMD64, Darwin ARM64.</li>
-            <li>Raw binaries published directly at the site root with <code>SHA256SUMS</code>.</li>
-          </ul>
-        </article>
-        <article>
-          <h2>Typical use</h2>
+          <p class="eyebrow">Normal Mode</p>
+          <h2>Proxy a running app</h2>
           <p>
-            Run `cwproxy` beside an application that already listens on loopback, or start that application through inspector mode and let `cwproxy` discover the listen port automatically.
+            Use normal mode when your application is already listening. <code>cwproxy</code>
+            connects to <code>APP_HOST:APP_PORT</code> and begins accepting traffic on <code>PROXY_PORT</code>.
+            It does not manage the upstream process lifecycle.
           </p>
+          <pre><code>export APP_HOST=127.0.0.1
+export APP_PORT=8080
+export PROXY_PORT=8081
+export APP_NAME=my-app
+./cwproxy</code></pre>
+          <div class="callout" style="margin-top:16px">
+            Typical deployments: run beside a systemd service, as a sidecar container
+            in the same Pod, or in host-network mode where the upstream is already running.
+          </div>
+        </article>
+
+        <article>
+          <p class="eyebrow">Inspector Mode</p>
+          <h2>Start and watch the target</h2>
+          <p>
+            Pass the target command after the binary name. <code>cwproxy</code> starts the
+            process, then polls its <strong>full process subtree</strong> every 100 ms for
+            open TCP LISTEN sockets. The <strong>lowest port found</strong> is used unless
+            <code>APP_PORT</code> is set explicitly.
+          </p>
+          <pre><code># auto-detect port
+./cwproxy node ./server.js
+
+# explicit port override
+APP_PORT=3000 ./cwproxy python app.py</code></pre>
+          <ul class="feature-list" style="margin-top:14px">
+            <li>Child inherits the full <code>cwproxy</code> environment and stdio.</li>
+            <li><code>SIGTERM</code> and <code>SIGINT</code> are forwarded to the child process.</li>
+            <li><code>cwproxy</code> exits with the child's exit code.</li>
+            <li>Wrapper processes and short-lived launchers are supported — the port scanner walks the whole process tree.</li>
+          </ul>
         </article>
       </section>
 
+      <!-- ═══════════════════ TRAFFIC LOGGING ══════════════════════════ -->
+      <section class="panel">
+        <p class="eyebrow">Traffic Logging</p>
+        <h2>One JSON line per request, everything included</h2>
+        <p>
+          Every proxied request produces a minified single-line JSON event on stdout.
+          The same event is delivered to CloudWatch Logs when AWS credentials are available.
+          Health probe paths are suppressed from traffic logs and emitted separately.
+        </p>
+
+        <!-- Annotated log example -->
+        <div class="log-example">
+<span class="dim">{</span>
+  <span class="k">"_q"</span><span class="dim">:</span><span class="s">"my-app POST /orders 201 14.287ms"</span><span class="dim">,</span>      <span class="dim">← CloudWatch Logs Insights summary line (TRAFFIC only)</span>
+  <span class="k">"_t"</span><span class="dim">:</span><span class="s">"TRAFFIC"</span><span class="dim">,</span>                                          <span class="dim">← category: TRAFFIC or HEALTH</span>
+  <span class="k">"app_name"</span><span class="dim">:</span><span class="s">"my-app"</span><span class="dim">,</span>
+  <span class="k">"global_hash"</span><span class="dim">:</span><span class="s">"a3f9c1"</span><span class="dim">,</span>                                   <span class="dim">← 6-char shape hash of query+req body+resp body</span>
+  <span class="k">"delay"</span><span class="dim">:</span><span class="n">14.287</span><span class="dim">,</span>
+  <span class="k">"request"</span><span class="dim">: {</span>
+    <span class="k">"method"</span><span class="dim">:</span><span class="s">"POST"</span><span class="dim">,</span> <span class="k">"path"</span><span class="dim">:</span><span class="s">"/orders"</span><span class="dim">,</span> <span class="k">"status"</span><span class="dim">: null,</span>
+    <span class="k">"queries"</span><span class="dim">: {</span><span class="k">"source"</span><span class="dim">:</span><span class="s">"web"</span><span class="dim">},</span> <span class="k">"queries_hash"</span><span class="dim">:</span><span class="s">"7b2e4a"</span><span class="dim">,</span>
+    <span class="k">"headers"</span><span class="dim">: {</span><span class="k">"Content-Type"</span><span class="dim">:</span><span class="s">"application/json"</span><span class="dim">},</span>
+    <span class="k">"cookies"</span><span class="dim">: {},</span>
+    <span class="k">"body"</span><span class="dim">: {</span><span class="k">"item"</span><span class="dim">:</span><span class="s">"widget"</span><span class="dim">,</span><span class="k">"qty"</span><span class="dim">:</span><span class="n">3</span><span class="dim">},</span>               <span class="dim">← parsed JSON object</span>
+    <span class="k">"body_raw"</span><span class="dim">:</span><span class="s">"{\"item\":\"widget\",\"qty\":3}"</span><span class="dim">,</span>         <span class="dim">← raw bytes always present alongside parsed</span>
+    <span class="k">"body_hash"</span><span class="dim">:</span><span class="s">"c91d08"</span>                                   <span class="dim">← structural shape hash</span>
+  <span class="dim">},</span>
+  <span class="k">"response"</span><span class="dim">: {</span>
+    <span class="k">"status"</span><span class="dim">:</span><span class="n">201</span><span class="dim">,</span>
+    <span class="k">"headers"</span><span class="dim">: {</span><span class="k">"Content-Type"</span><span class="dim">:</span><span class="s">"application/json"</span><span class="dim">},</span>
+    <span class="k">"set_cookies"</span><span class="dim">: {},</span>
+    <span class="k">"body"</span><span class="dim">: {</span><span class="k">"id"</span><span class="dim">:</span><span class="s">"ord_abc123"</span><span class="dim">,</span><span class="k">"status"</span><span class="dim">:</span><span class="s">"created"</span><span class="dim">},</span>
+    <span class="k">"body_raw"</span><span class="dim">:</span><span class="s">"{\"id\":\"ord_abc123\",\"status\":\"created\"}"</span><span class="dim">,</span>
+    <span class="k">"body_hash"</span><span class="dim">:</span><span class="s">"f44a1b"</span>
+  <span class="dim">},</span>
+  <span class="k">"aws_meta"</span><span class="dim">: {</span><span class="k">"ecs"</span><span class="dim">: {</span><span class="k">"cluster"</span><span class="dim">:</span><span class="s">"prod"</span><span class="dim">,</span><span class="k">"task_family"</span><span class="dim">:</span><span class="s">"my-app"</span><span class="dim">}}</span>   <span class="dim">← runtime metadata</span>
+<span class="dim">}</span>
+        </div>
+
+        <div style="display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:22px">
+          <div>
+            <h3 style="margin:0 0 10px;font-size:1.05rem;letter-spacing:-0.02em">Body capture &amp; parsing</h3>
+            <ul class="feature-list">
+              <li>Up to <strong>64 KiB</strong> captured per request and response body. Bodies exceeding this limit are truncated and flagged.</li>
+              <li><strong>JSON</strong> (<code>application/json</code>) → structured <code>body</code> object with number types preserved.</li>
+              <li><strong>Form</strong> (<code>application/x-www-form-urlencoded</code>) → key/value map in <code>body</code>.</li>
+              <li><strong>XML</strong> (<code>application/xml</code>, <code>text/xml</code>, <code>*+xml</code>) → nested map with attributes prefixed <code>@</code>.</li>
+              <li>Raw bytes always available in <code>body_raw</code> alongside the parsed <code>body</code> field.</li>
+              <li>On parse failure, <code>body</code> falls back to the raw string.</li>
+            </ul>
+          </div>
+          <div>
+            <h3 style="margin:0 0 10px;font-size:1.05rem;letter-spacing:-0.02em">Structural shape hashes</h3>
+            <p style="color:var(--muted);font-size:0.875rem;line-height:1.65;margin:0 0 10px">
+              Each log event carries 6-character hex hashes (first 3 bytes of SHA-256) that capture the <em>shape</em> of the data — the set of keys and their types — independent of the actual values. Identical API call patterns produce identical hashes across all requests.
+            </p>
+            <dl class="inline-dl">
+              <dt>queries_hash</dt><dd>Shape of the URL query parameter map</dd>
+              <dt>body_hash</dt><dd>Shape of the request body (on <code>request</code>)</dd>
+              <dt>body_hash</dt><dd>Shape of the response body (on <code>response</code>)</dd>
+              <dt>global_hash</dt><dd>Combined shape of queries + req body + resp body</dd>
+            </dl>
+            <div class="callout" style="margin-top:12px">
+              Use <code>global_hash</code> in CloudWatch Logs Insights to group all traffic with the same request/response structure, regardless of field values.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════ CLOUDWATCH LOGS ══════════════════════════ -->
+      <section class="panel panel-grid">
+        <article>
+          <p class="eyebrow">CloudWatch Logs</p>
+          <h2>Async delivery with back-pressure</h2>
+          <p>
+            Log events are enqueued to an in-memory channel and flushed to CloudWatch by a
+            background goroutine. The proxy path never blocks on AWS API calls.
+          </p>
+          <ul class="feature-list" style="margin-top:14px">
+            <li>Bounded queue of <strong>1024 events</strong>. When full, excess events are dropped and counted; a warning is reported every 100 drops.</li>
+            <li>Batches of up to <strong>1000 events</strong> or <strong>900 KiB</strong> per <code>PutLogEvents</code> call.</li>
+            <li>Background flush every <strong>2 seconds</strong> and on shutdown.</li>
+            <li>Each <code>PutLogEvents</code> call is bounded to a <strong>2-second timeout</strong> and retried up to <strong>3×</strong> with 100 ms / 200 ms backoff on <code>ThrottlingException</code> and <code>ServiceUnavailableException</code>.</li>
+            <li>Shutdown flushes the remaining queue within a <strong>10-second budget</strong> before exit.</li>
+            <li>Log stream name includes app name, PID, and Unix timestamp — unique across restarts.</li>
+            <li>Log group and stream created at startup; <code>ResourceAlreadyExistsException</code> is silently accepted.</li>
+          </ul>
+          <div class="callout callout-warm" style="margin-top:14px">
+            <strong>Traffic logs</strong> → <code>LOG_GROUP_NAME</code> (default <code>/app/log/{APP_NAME}</code>)<br>
+            <strong>Health logs</strong> → <code>HEALTH_LOG_GROUP_NAME</code> (default <code>/app/log/{APP_NAME}/health</code>)
+          </div>
+          <div class="callout" style="margin-top:10px">
+            CloudWatch delivery is fully optional. If no AWS region can be resolved, or if AWS
+            config loading fails, <code>cwproxy</code> continues proxying and logging to stdout without interruption.
+          </div>
+        </article>
+
+        <article>
+          <p class="eyebrow">EMF Metrics</p>
+          <h2>Metrics embedded in log events</h2>
+          <p>
+            CloudWatch Embedded Metric Format (EMF) data is attached to every log event.
+            CloudWatch extracts it as custom metrics automatically — no <code>cloudwatch:PutMetricData</code> permission needed.
+            Metrics are also emitted to stdout for local consumption.
+          </p>
+
+          <div class="metric-group">
+            <div class="metric-group-title">Namespace: app/traffic</div>
+            <p style="font-size:0.82rem;color:var(--muted);margin:0 0 8px">Dimensions: <code>{AppName}</code> and <code>{AppName, Endpoint, Method}</code></p>
+            <div class="metric-pill-row">
+              <span class="metric-pill">RequestCount<span class="unit">count</span></span>
+              <span class="metric-pill">Latency<span class="unit">ms</span></span>
+              <span class="metric-pill">RequestBodySize<span class="unit">bytes</span></span>
+              <span class="metric-pill">ResponseBodySize<span class="unit">bytes</span></span>
+              <span class="metric-pill">2XXStatusCode<span class="unit">count</span></span>
+              <span class="metric-pill">4XXStatusCode<span class="unit">count</span></span>
+              <span class="metric-pill">5XXStatusCode<span class="unit">count</span></span>
+            </div>
+          </div>
+
+          <div class="metric-group">
+            <div class="metric-group-title">Namespace: app/health</div>
+            <p style="font-size:0.82rem;color:var(--muted);margin:0 0 8px">Dimensions: <code>{AppName, Endpoint}</code></p>
+            <div class="metric-pill-row">
+              <span class="metric-pill">HealthStatus<span class="unit">count (0/1)</span></span>
+              <span class="metric-pill">HealthLatency<span class="unit">ms</span></span>
+            </div>
+          </div>
+
+          <div class="callout" style="margin-top:14px">
+            Each request emits metrics under both <code>{AppName}</code> (aggregate) and
+            <code>{AppName, Endpoint, Method}</code> (per-route) dimension sets in a single log event.
+            Multiple EMF directives are emitted as separate lines when needed to stay within CloudWatch limits.
+          </div>
+
+          <h3 style="margin:18px 0 8px;font-size:0.95rem">Required IAM permissions</h3>
+          <pre><code>logs:CreateLogGroup
+logs:CreateLogStream
+logs:PutLogEvents</code></pre>
+        </article>
+      </section>
+
+      <!-- ═══════════════════ HEALTH CHECKS ════════════════════════════ -->
+      <section class="panel panel-grid">
+        <article>
+          <p class="eyebrow">Health Checks</p>
+          <h2>Periodic probing with full telemetry</h2>
+          <p>
+            <code>cwproxy</code> runs concurrent HTTP GET probes against all configured
+            <code>HEALTH_URLS</code> at a fixed 30-second interval (configurable).
+            Health events are logged to their own log group with full request/response detail.
+          </p>
+          <ul class="feature-list" style="margin-top:14px">
+            <li>All endpoints probed <strong>concurrently</strong> each interval.</li>
+            <li>Probe fires immediately at startup, then on each tick.</li>
+            <li>Captures up to 64 KiB of response body; logs parsed body in health events.</li>
+            <li>Reports response headers and cookies in health log events.</li>
+            <li><code>HealthStatus=1</code> for HTTP 2xx–3xx; <code>0</code> for 4xx, 5xx, and transport errors.</li>
+            <li>Traffic requests matching a health path are <strong>suppressed from traffic logs</strong> — they do not emit traffic metrics or log events.</li>
+            <li>Health log events omit <code>_q</code> and <code>app_name</code> fields; they retain <code>_t</code>, request/response payloads, metadata, and EMF.</li>
+          </ul>
+        </article>
+
+        <article>
+          <p class="eyebrow">HEALTH_URLS</p>
+          <h2>Flexible URL resolution</h2>
+          <p>
+            Each comma-separated entry in <code>HEALTH_URLS</code> may omit any combination
+            of scheme, host, port, or path. Missing parts are filled from defaults.
+          </p>
+          <dl class="inline-dl" style="margin-top:12px">
+            <dt>scheme</dt><dd>Default: <code>http</code>. <code>https</code> supported.</dd>
+            <dt>host</dt><dd>Default: <code>APP_HOST</code></dd>
+            <dt>port</dt><dd>First entry: <code>APP_PORT</code>. Later http: 80. https: 443.</dd>
+            <dt>path</dt><dd>Later entries without a path inherit the first entry path.</dd>
+          </dl>
+          <div class="url-examples">
+            <div class="url-row">
+              <span class="input-cell">/health</span>
+              <span class="arrow">→</span>
+              <span class="output-cell">http://{APP_HOST}:{APP_PORT}/health</span>
+            </div>
+            <div class="url-row">
+              <span class="input-cell">:9000/health</span>
+              <span class="arrow">→</span>
+              <span class="output-cell">http://{APP_HOST}:9000/health</span>
+            </div>
+            <div class="url-row">
+              <span class="input-cell">/healthz,alb.example.com</span>
+              <span class="arrow">→</span>
+              <span class="output-cell">{APP_HOST}:{APP_PORT}/healthz<br>alb.example.com:80/healthz</span>
+            </div>
+            <div class="url-row">
+              <span class="input-cell">https://alb.example.com/ping</span>
+              <span class="arrow">→</span>
+              <span class="output-cell">https://alb.example.com:443/ping</span>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ═══════════════════ UPSTREAM RETRY ═══════════════════════════ -->
+      <section class="panel">
+        <p class="eyebrow">Upstream Retry</p>
+        <h2>Configurable policy applied inside the transport</h2>
+        <p>
+          Retries happen transparently inside the HTTP transport. Only the <strong>final upstream response</strong>
+          is logged and metered — intermediate failures are invisible to callers.
+          Set <code>BACKEND_RETRY_MAX_ATTEMPTS=1</code> to disable retries entirely.
+        </p>
+
+        <div style="display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:20px">
+          <div>
+            <h3 style="margin:0 0 10px;font-size:1rem;letter-spacing:-0.02em">Policy parameters</h3>
+            <dl class="inline-dl">
+              <dt>MAX_ATTEMPTS</dt><dd>Total upstream attempts including the first. Default: <strong>2</strong>.</dd>
+              <dt>INITIAL_BACKOFF</dt><dd>Delay before the first retry. Default: <strong>50 ms</strong>.</dd>
+              <dt>MAX_BACKOFF</dt><dd>Upper bound on retry delay. Default: <strong>250 ms</strong>.</dd>
+              <dt>MULTIPLIER</dt><dd>Exponential backoff multiplier. Default: <strong>2</strong>.</dd>
+              <dt>METHODS</dt><dd>HTTP methods eligible for retry. Default: <strong>GET, HEAD, OPTIONS</strong>.</dd>
+              <dt>STATUS_CODES</dt><dd>Upstream status codes that trigger a retry. Default: <strong>500–599</strong>. Supports ranges (<code>500-503</code>) and individual codes.</dd>
+              <dt>ON_TRANSPORT_ERRORS</dt><dd>Retry on network-level failures in addition to status codes. Default: <strong>false</strong>. Context cancellation and deadline exceeded are never retried.</dd>
+              <dt>BODY_BUFFER_BYTES</dt><dd>Request bodies up to this size are buffered for replay. Larger bodies are not retried. Default: <strong>64 KiB</strong>.</dd>
+            </dl>
+          </div>
+          <div>
+            <h3 style="margin:0 0 10px;font-size:1rem;letter-spacing:-0.02em">Retry eligibility rules</h3>
+            <ul class="feature-list">
+              <li><strong>Method</strong> must be in <code>BACKEND_RETRY_METHODS</code>.</li>
+              <li><strong>Upgrade</strong> requests (WebSocket) and <strong>CONNECT</strong> are never retried.</li>
+              <li><strong>Bodies with <code>GetBody</code></strong> set are always replayable (e.g. requests from Go's HTTP client).</li>
+              <li><strong>Bodies without <code>GetBody</code></strong> are buffered up to <code>BODY_BUFFER_BYTES</code>. Bodies exceeding the limit are not retried.</li>
+              <li>On a retryable status, the consumed upstream response body is <strong>drained and discarded</strong> before the next attempt.</li>
+              <li>Context cancellation during the backoff wait <strong>returns the received response</strong> rather than an error.</li>
+            </ul>
+            <div class="callout callout-warm" style="margin-top:12px">
+              <strong>Request body bytes captured in logs reflect all upstream attempts,</strong> not just the first — so <code>RequestBodySize</code> metrics count total bytes sent across retries.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════ RUNTIME METADATA ═════════════════════════ -->
+      <section class="panel">
+        <p class="eyebrow">Runtime Metadata</p>
+        <h2>Automatic AWS environment enrichment</h2>
+        <p>
+          At startup, <code>cwproxy</code> collects instance, task, and pod metadata with a
+          <strong>200 ms global timeout</strong>. Available fields are attached as <code>aws_meta</code>
+          to every log event. Missing or inaccessible sources are omitted without error.
+        </p>
+
+        <div class="panel-3-grid" style="margin-top:18px">
+          <div class="deploy-card">
+            <div class="tag-row" style="margin:0 0 10px"><span class="tag">EC2</span></div>
+            <h4>Instance Identity</h4>
+            <p>Fetched from IMDSv2 with the configured 200 ms timeout.</p>
+            <div class="tag-row">
+              <span class="tag">instance_id</span>
+              <span class="tag">instance_type</span>
+              <span class="tag">region</span>
+              <span class="tag">availability_zone</span>
+              <span class="tag">image_id</span>
+              <span class="tag">account_id</span>
+            </div>
+          </div>
+          <div class="deploy-card">
+            <div class="tag-row" style="margin:0 0 10px"><span class="tag">ECS</span></div>
+            <h4>Task &amp; Container</h4>
+            <p>Fetched from <code>ECS_CONTAINER_METADATA_URI_V4</code> (v3 fallback).</p>
+            <div class="tag-row">
+              <span class="tag">cluster</span>
+              <span class="tag">task_arn</span>
+              <span class="tag">task_family</span>
+              <span class="tag">task_revision</span>
+              <span class="tag">launch_type</span>
+              <span class="tag">availability_zone</span>
+              <span class="tag">container_arn</span>
+              <span class="tag">container_name</span>
+            </div>
+          </div>
+          <div class="deploy-card">
+            <div class="tag-row" style="margin:0 0 10px"><span class="tag">EKS</span></div>
+            <h4>Pod &amp; Workload</h4>
+            <p>Read from environment variables and the serviceaccount JWT claims.</p>
+            <div class="tag-row">
+              <span class="tag">cluster_name</span>
+              <span class="tag">deployment_name</span>
+              <span class="tag">namespace</span>
+              <span class="tag">pod_name</span>
+              <span class="tag">pod_uid</span>
+              <span class="tag">node_name</span>
+              <span class="tag">service_account</span>
+              <span class="tag">execution_environment</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:18px">
+          <div class="callout">
+            <strong>APP_NAME auto-detection order:</strong><br>
+            <code>APP_NAME</code> env var → EKS deployment name (inferred from pod name hash) → ECS task family → <code>os.Hostname()</code> → <code>"cwproxy"</code>
+          </div>
+          <div class="callout">
+            <strong>AWS_REGION auto-detection order:</strong><br>
+            <code>AWS_REGION</code> env → <code>AWS_DEFAULT_REGION</code> env → EC2 IMDS region → ECS task ARN region → AZ-derived region (strips last character)
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════ CONFIGURATION ════════════════════════════ -->
+      <section class="panel" id="config">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Configuration</p>
+            <h2>Environment variables</h2>
+          </div>
+          <p class="section-note">All configuration is via environment variables. Unset variables use the listed defaults.</p>
+        </div>
+
+        <table class="field-table">
+          <thead>
+            <tr>
+              <th>Variable</th>
+              <th>Default</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="field-group-head"><td colspan="3">Core</td></tr>
+            <tr><td>PROXY_PORT</td><td>8081</td><td>Port that cwproxy listens on.</td></tr>
+            <tr><td>APP_HOST</td><td>127.0.0.1</td><td>Upstream application host. Also the default host for omitted HEALTH_URLS hosts.</td></tr>
+            <tr><td>APP_PORT</td><td>8080</td><td>Upstream application port. In inspector mode, overrides auto-detection when set.</td></tr>
+            <tr><td>APP_NAME</td><td>auto-detected</td><td>Application name used in logs and metric dimensions. See auto-detection order above.</td></tr>
+
+            <tr class="field-group-head"><td colspan="3">Health</td></tr>
+            <tr><td>HEALTH_URLS</td><td>{APP_HOST}:{APP_PORT}/health</td><td>Comma-separated health probe endpoints. Partial URLs are resolved against APP_HOST/APP_PORT.</td></tr>
+
+            <tr class="field-group-head"><td colspan="3">CloudWatch Logs</td></tr>
+            <tr><td>LOG_GROUP_NAME</td><td>/app/log/{APP_NAME}</td><td>CloudWatch Logs group for traffic logs and traffic EMF.</td></tr>
+            <tr><td>HEALTH_LOG_GROUP_NAME</td><td>/app/log/{APP_NAME}/health</td><td>CloudWatch Logs group for health logs and health EMF.</td></tr>
+            <tr><td>AWS_REGION</td><td>—</td><td>AWS region override. Takes precedence over all other region sources.</td></tr>
+            <tr><td>AWS_DEFAULT_REGION</td><td>—</td><td>Secondary AWS region override. Used when AWS_REGION is unset.</td></tr>
+
+            <tr class="field-group-head"><td colspan="3">Upstream Retry</td></tr>
+            <tr><td>BACKEND_RETRY_MAX_ATTEMPTS</td><td>2</td><td>Total upstream attempts including the first. Set to 1 to disable retries.</td></tr>
+            <tr><td>BACKEND_RETRY_INITIAL_BACKOFF</td><td>50ms</td><td>Delay before the first retry attempt.</td></tr>
+            <tr><td>BACKEND_RETRY_MAX_BACKOFF</td><td>250ms</td><td>Upper bound on exponential backoff delay.</td></tr>
+            <tr><td>BACKEND_RETRY_BACKOFF_MULTIPLIER</td><td>2</td><td>Exponential backoff multiplier applied between retry attempts.</td></tr>
+            <tr><td>BACKEND_RETRY_METHODS</td><td>GET,HEAD,OPTIONS</td><td>Comma-separated HTTP methods eligible for retry.</td></tr>
+            <tr><td>BACKEND_RETRY_STATUS_CODES</td><td>500-599</td><td>Comma-separated upstream status codes or ranges (e.g. <code>500-503,429</code>) that trigger a retry.</td></tr>
+            <tr><td>BACKEND_RETRY_ON_TRANSPORT_ERRORS</td><td>false</td><td>When true, also retry on network-level upstream errors. Context cancellation and deadline exceeded are never retried.</td></tr>
+            <tr><td>BACKEND_RETRY_BODY_BUFFER_BYTES</td><td>65536</td><td>Maximum request-body bytes buffered for replay on retry. Requests with larger bodies are not retried.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout" style="margin-top:16px">
+          <strong>Fixed runtime defaults</strong> (not configurable via env): health probe interval 30 s,
+          request body capture limit 64 KiB, response body capture limit 64 KiB.
+        </div>
+      </section>
+
+      <!-- ═══════════════════ OPERATIONAL SAFETY ═══════════════════════ -->
+      <section class="panel panel-grid">
+        <article>
+          <p class="eyebrow">Operational Safety</p>
+          <h2>Built for unattended operation</h2>
+          <ul class="safety-list">
+            <li><span class="check">✓</span><span><strong>Panic recovery</strong> wraps every request handler goroutine and the health runner. A panic in one request returns 500 to the client and logs the recovered value; it never takes down the process.</span></li>
+            <li><span class="check">✓</span><span><strong>Bounded body capture</strong> — body buffers have a hard 64 KiB ceiling. Memory use cannot grow unboundedly with large payloads.</span></li>
+            <li><span class="check">✓</span><span><strong>Graceful shutdown</strong> — on SIGTERM or SIGINT, the server drains in-flight requests, then flushes the CloudWatch queue within a 10-second budget.</span></li>
+            <li><span class="check">✓</span><span><strong>CloudWatch degradation</strong> — AWS config and sink initialization failures are logged to stderr; the proxy continues serving traffic and logging to stdout without interruption.</span></li>
+            <li><span class="check">✓</span><span><strong>X-Forwarded-For preservation</strong> — inbound XFF headers from upstream load balancers are passed through and X-Forwarded-* is appended correctly.</span></li>
+            <li><span class="check">✓</span><span><strong>No unbounded goroutine growth</strong> — the CloudWatch queue, batch sizes, and process tree walk are all bounded.</span></li>
+          </ul>
+        </article>
+
+        <article>
+          <p class="eyebrow">Deployment</p>
+          <h2>Static binary, no runtime deps</h2>
+          <p>Binaries are built with <code>CGO_ENABLED=0</code>. Drop them anywhere.</p>
+          <div class="deploy-grid" style="margin-top:14px;grid-template-columns:repeat(2,minmax(0,1fr))">
+            <div class="deploy-card">
+              <h4>Platforms</h4>
+              <div class="tag-row" style="margin-top:6px">
+                <span class="tag">linux/amd64</span>
+                <span class="tag">linux/arm64</span>
+                <span class="tag">darwin/amd64</span>
+                <span class="tag">darwin/arm64</span>
+                <span class="tag">windows/amd64</span>
+              </div>
+            </div>
+            <div class="deploy-card">
+              <h4>Container</h4>
+              <p><code>ghcr.io/awsutils/cwproxy:latest</code></p>
+              <p>Alpine base · non-root user · CA certs included</p>
+            </div>
+          </div>
+          <div class="callout" style="margin-top:14px">
+            <strong>Deployment patterns:</strong> beside a systemd service on bare metal, as a Kubernetes sidecar container (same Pod network namespace), or in host-network Docker with the app on loopback.
+          </div>
+          <pre style="margin-top:14px"><code># verify download integrity
+sha256sum -c SHA256SUMS
+
+# Docker sidecar
+docker run --rm --network host \
+  -e APP_PORT=8080 -e PROXY_PORT=8081 \
+  -e APP_NAME=my-app -e AWS_REGION=us-east-1 \
+  ghcr.io/awsutils/cwproxy:latest</code></pre>
+        </article>
+      </section>
+
+      <!-- ═══════════════════ QUICK START ══════════════════════════════ -->
+      <section class="panel" id="quick-start">
+        <p class="eyebrow">How To Use</p>
+        <h2>Quick start guide</h2>
+        <ol class="step-list">
+          <li>
+            Download the binary matching your OS and architecture from the section below.
+            On Linux or macOS, make it executable:
+            <pre><code>chmod +x ./cwproxy-linux-amd64</code></pre>
+          </li>
+          <li>
+            Configure via environment variables and start alongside your app in normal mode:
+            <pre><code>export PROXY_PORT=8081
+export APP_PORT=8080
+export APP_NAME=my-app
+export HEALTH_URLS=/health
+export LOG_GROUP_NAME=/app/log/my-app
+export HEALTH_LOG_GROUP_NAME=/app/log/my-app/health
+export AWS_REGION=us-east-1
+./cwproxy-linux-amd64</code></pre>
+          </li>
+          <li>
+            Or use inspector mode to let <code>cwproxy</code> launch and monitor the target process:
+            <pre><code>./cwproxy-linux-amd64 node ./server.js</code></pre>
+          </li>
+          <li>
+            Send traffic to <code>PROXY_PORT</code>. Structured JSON logs appear on stdout immediately.
+            CloudWatch delivery begins as soon as AWS credentials are resolved (instance profile, env vars, or <code>~/.aws/credentials</code>).
+          </li>
+        </ol>
+      </section>
+
+      <!-- ═══════════════════ DOWNLOADS ═════════════════════════════════ -->
       <section class="panel" id="downloads">
         <div class="section-head">
           <div>
             <p class="eyebrow">Downloads</p>
             <h2>Published artifacts</h2>
           </div>
-          <p class="section-note">Choose the binary that matches your operating system and architecture. Use <code>SHA256SUMS</code> to verify integrity before running it.</p>
+          <p class="section-note">
+            Choose the binary for your OS and architecture.
+            Verify integrity with <code>SHA256SUMS</code> before running.
+            On Linux and macOS, run <code>sha256sum -c SHA256SUMS</code>.
+            On Windows PowerShell, use <code>Get-FileHash</code> and compare manually.
+          </p>
         </div>
         <div class="download-grid">
 {{DOWNLOAD_ITEMS}}
         </div>
       </section>
 
-      <section class="panel" id="quick-start">
-        <p class="eyebrow">How To Use</p>
-        <h2>Quick start guide</h2>
-        <ol class="step-list">
-          <li>
-            Download the matching binary for your OS and architecture.
-            On Linux or macOS, make it executable with <code>chmod +x ./cwproxy-*</code>.
-          </li>
-          <li>
-            Start your upstream app on loopback, then run `cwproxy` with the required environment variables:
-            <pre><code>PROXY_PORT=8081
-APP_PORT=8080
-APP_NAME=my-app
-HEALTH_URLS=/health
-./cwproxy-linux-amd64</code></pre>
-          </li>
-          <li>
-            Send traffic to <code>PROXY_PORT</code>. <code>cwproxy</code> forwards requests to <code>127.0.0.1:APP_PORT</code>, logs traffic to stdout, and emits EMF metrics to stdout and CloudWatch when AWS configuration is available.
-          </li>
-        </ol>
-      </section>
-
-      <section class="panel panel-grid">
-        <article>
-          <p class="eyebrow">Normal Mode</p>
-          <h2>Proxy an existing app</h2>
-          <pre><code>APP_PORT=8080
-PROXY_PORT=8081
-./cwproxy-linux-amd64</code></pre>
-          <p>Use this when your application is already running on <code>127.0.0.1:APP_PORT</code>.</p>
-        </article>
-        <article>
-          <p class="eyebrow">Inspector Mode</p>
-          <h2>Start and inspect the target app</h2>
-          <pre><code>PROXY_PORT=8081
-./cwproxy-linux-amd64 node ./server.js</code></pre>
-          <p>Use this when `cwproxy` should launch the target process and auto-detect its listening port.</p>
-        </article>
-      </section>
-
-      <section class="panel panel-grid">
-        <article>
-          <p class="eyebrow">Verify</p>
-          <h2>Checksum validation</h2>
-          <pre><code>sha256sum -c SHA256SUMS</code></pre>
-          <p>On Windows PowerShell, use `Get-FileHash` and compare the output with `SHA256SUMS`.</p>
-        </article>
-        <article>
-          <p class="eyebrow">Reference</p>
-          <h2>Operational notes</h2>
-          <ul class="feature-list compact">
-            <li><code>AWS_REGION</code> or runtime metadata enables CloudWatch delivery.</li>
-            <li>Health logs go to <code>/app/log/{APP_NAME}/health</code> by default.</li>
-            <li>Traffic paths that match <code>HEALTH_URLS</code> are suppressed from traffic logs.</li>
-          </ul>
-        </article>
-      </section>
     </main>
   </div>
 </body>
