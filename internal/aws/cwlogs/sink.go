@@ -216,11 +216,26 @@ func (s *Sink) run() {
 		if len(batch) == 0 {
 			return
 		}
-		_, err := s.client.PutLogEvents(context.Background(), &cloudwatchlogs.PutLogEventsInput{
-			LogEvents:     batch,
-			LogGroupName:  aws.String(s.logGroupName),
-			LogStreamName: aws.String(s.logStreamName),
-		})
+		const (
+			maxFlushAttempts = 3
+			flushCallTimeout = 2 * time.Second
+		)
+		var err error
+		for attempt := 0; attempt < maxFlushAttempts; attempt++ {
+			if attempt > 0 {
+				time.Sleep(time.Duration(1<<uint(attempt-1)) * 100 * time.Millisecond)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), flushCallTimeout)
+			_, err = s.client.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
+				LogEvents:     batch,
+				LogGroupName:  aws.String(s.logGroupName),
+				LogStreamName: aws.String(s.logStreamName),
+			})
+			cancel()
+			if err == nil || !isPutLogEventsRetryable(err) {
+				break
+			}
+		}
 		if err != nil && s.reporter != nil {
 			s.reporter("failed to publish CloudWatch log events: %v", err)
 		}
@@ -294,6 +309,15 @@ func (s *Sink) enqueueMessage(ctx context.Context, message []byte, timestamp int
 		s.noteDrop()
 		return errors.New("cloudwatch logs queue is full")
 	}
+}
+
+func isPutLogEventsRetryable(err error) bool {
+	var apiError smithy.APIError
+	if !errors.As(err, &apiError) {
+		return false
+	}
+	code := apiError.ErrorCode()
+	return code == "ThrottlingException" || code == "ServiceUnavailableException"
 }
 
 func ensureLogResources(ctx context.Context, client Client, logGroupName, logStreamName string) error {

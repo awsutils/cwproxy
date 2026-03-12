@@ -148,6 +148,17 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 
 	requestWithState := request.Clone(context.WithValue(request.Context(), stateKey{}, state))
 	requestWithState.Body = newTeeReadCloser(request.Body, state.requestCapture)
+	if requestWithState.GetBody != nil {
+		originalGetBody := requestWithState.GetBody
+		capture := state.requestCapture
+		requestWithState.GetBody = func() (io.ReadCloser, error) {
+			body, err := originalGetBody()
+			if err != nil {
+				return nil, err
+			}
+			return newTeeReadCloser(body, capture), nil
+		}
+	}
 
 	defer func() {
 		if recovered := recover(); recovered != nil {

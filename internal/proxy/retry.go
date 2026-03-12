@@ -128,7 +128,8 @@ func (t *retryTransport) RoundTrip(request *http.Request) (*http.Response, error
 		closeResponseBody(response.Body)
 	}
 
-	return t.next.RoundTrip(request)
+	// unreachable: at attempt == MaxAttempts every branch above returns
+	panic("retryTransport: unreachable after retry loop")
 }
 
 func (t *retryTransport) shouldRetryRequest(request *http.Request) bool {

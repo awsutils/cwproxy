@@ -438,12 +438,10 @@ func looksLikeReplicaSetHash(value string) bool {
 		return false
 	}
 
-	hasDigit := false
 	for _, current := range value {
 		if current >= '0' && current <= '9' {
-			hasDigit = true
-			break
+			return true
 		}
 	}
-	return hasDigit
+	return false
 }

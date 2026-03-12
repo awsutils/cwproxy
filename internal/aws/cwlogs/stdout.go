@@ -11,15 +11,31 @@ import (
 )
 
 type StdoutSink struct {
-	mu sync.Mutex
-	w  io.Writer
+	mu                     sync.Mutex
+	w                      io.Writer
+	trafficMetricNamespace string
+	healthMetricNamespace  string
 }
 
-func NewStdoutSink(writer io.Writer) *StdoutSink {
+func NewStdoutSink(writer io.Writer, options ...Options) *StdoutSink {
 	if writer == nil {
 		writer = io.Discard
 	}
-	return &StdoutSink{w: writer}
+	trafficNS := "app/traffic"
+	healthNS := "app/health"
+	if len(options) > 0 {
+		if options[0].TrafficMetricNamespace != "" {
+			trafficNS = options[0].TrafficMetricNamespace
+		}
+		if options[0].HealthMetricNamespace != "" {
+			healthNS = options[0].HealthMetricNamespace
+		}
+	}
+	return &StdoutSink{
+		w:                      writer,
+		trafficMetricNamespace: trafficNS,
+		healthMetricNamespace:  healthNS,
+	}
 }
 
 func (s *StdoutSink) Log(_ context.Context, entry logging.Entry) error {
@@ -31,11 +47,11 @@ func (s *StdoutSink) Log(_ context.Context, entry logging.Entry) error {
 }
 
 func (s *StdoutSink) LogWithMetrics(_ context.Context, entry logging.Entry, data []metrics.Datum) error {
-	return s.logWithMetrics(entry, data, "app/traffic")
+	return s.logWithMetrics(entry, data, s.trafficMetricNamespace)
 }
 
 func (s *StdoutSink) LogHealthWithMetrics(_ context.Context, entry logging.Entry, data []metrics.Datum) error {
-	return s.logWithMetrics(entry, data, "app/health")
+	return s.logWithMetrics(entry, data, s.healthMetricNamespace)
 }
 
 func (s *StdoutSink) Close(context.Context) error {

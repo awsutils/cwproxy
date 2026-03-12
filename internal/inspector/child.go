@@ -177,6 +177,8 @@ func (c *Child) wait() {
 	close(c.done)
 }
 
+const maxProcessTreeSize = 256
+
 func processTreePIDs(ctx context.Context, rootPID int32) ([]int32, error) {
 	if rootPID <= 0 {
 		return nil, errors.New("root pid must be positive")
@@ -188,6 +190,9 @@ func processTreePIDs(ctx context.Context, rootPID int32) ([]int32, error) {
 	var combined error
 
 	for len(queue) > 0 {
+		if len(pids) >= maxProcessTreeSize {
+			break
+		}
 		pid := queue[0]
 		queue = queue[1:]
 		if _, found := seen[pid]; found {
