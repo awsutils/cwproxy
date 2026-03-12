@@ -25,6 +25,7 @@ type Options struct {
 	Metadata        *metadata.Snapshot
 	HealthPaths     map[string]struct{}
 	MaxCaptureBytes int
+	RetryPolicy     RetryPolicy
 	Reporter        func(string, ...any)
 	Now             func() time.Time
 	Transport       http.RoundTripper
@@ -78,6 +79,7 @@ func New(targetURL *url.URL, sink logging.Sink, publisher metrics.Publisher, opt
 			ExpectContinueTimeout: 1 * time.Second,
 		}
 	}
+	transport = newRetryTransport(transport, options.RetryPolicy)
 
 	reporter := options.Reporter
 	errorLogger := log.New(io.Discard, "", 0)

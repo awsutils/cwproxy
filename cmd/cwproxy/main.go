@@ -137,6 +137,7 @@ func run() error {
 		Metadata:        runtimeMetadata,
 		HealthPaths:     healthPathSet(cfg.HealthURLs),
 		MaxCaptureBytes: cfg.CaptureBodyLimit,
+		RetryPolicy:     cfg.RetryPolicy,
 		Reporter:        reporter.Printf,
 	})
 	runContext, stopRun := context.WithCancel(context.Background())

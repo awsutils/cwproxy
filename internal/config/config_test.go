@@ -2,7 +2,12 @@ package config
 
 import (
 	"errors"
+	"net/http"
+	"slices"
 	"testing"
+	"time"
+
+	"github.com/awsutils/cwproxy/internal/proxy"
 )
 
 func TestLoadFromEnvDefaults(t *testing.T) {
@@ -38,6 +43,30 @@ func TestLoadFromEnvDefaults(t *testing.T) {
 	}
 	if len(cfg.HealthURLs) != 1 || cfg.HealthURLs[0].String() != "http://127.0.0.1:8080/health" {
 		t.Fatalf("HealthURLs = %#v", cfg.HealthURLs)
+	}
+	if cfg.RetryPolicy.MaxAttempts != proxy.DefaultRetryMaxAttempts {
+		t.Fatalf("RetryPolicy.MaxAttempts = %d, want %d", cfg.RetryPolicy.MaxAttempts, proxy.DefaultRetryMaxAttempts)
+	}
+	if cfg.RetryPolicy.InitialBackoff != proxy.DefaultRetryInitialBackoff {
+		t.Fatalf("RetryPolicy.InitialBackoff = %s, want %s", cfg.RetryPolicy.InitialBackoff, proxy.DefaultRetryInitialBackoff)
+	}
+	if cfg.RetryPolicy.MaxBackoff != proxy.DefaultRetryMaxBackoff {
+		t.Fatalf("RetryPolicy.MaxBackoff = %s, want %s", cfg.RetryPolicy.MaxBackoff, proxy.DefaultRetryMaxBackoff)
+	}
+	if cfg.RetryPolicy.BackoffMultiplier != proxy.DefaultRetryBackoffMultiplier {
+		t.Fatalf("RetryPolicy.BackoffMultiplier = %v, want %v", cfg.RetryPolicy.BackoffMultiplier, proxy.DefaultRetryBackoffMultiplier)
+	}
+	if !slices.Equal(cfg.RetryPolicy.Methods, proxy.DefaultRetryMethods) {
+		t.Fatalf("RetryPolicy.Methods = %#v, want %#v", cfg.RetryPolicy.Methods, proxy.DefaultRetryMethods)
+	}
+	if len(cfg.RetryPolicy.StatusCodes) != 100 || cfg.RetryPolicy.StatusCodes[0] != http.StatusInternalServerError || cfg.RetryPolicy.StatusCodes[len(cfg.RetryPolicy.StatusCodes)-1] != 599 {
+		t.Fatalf("RetryPolicy.StatusCodes = %#v", cfg.RetryPolicy.StatusCodes)
+	}
+	if cfg.RetryPolicy.RetryOnTransportErrors {
+		t.Fatal("RetryPolicy.RetryOnTransportErrors = true, want false")
+	}
+	if cfg.RetryPolicy.BodyBufferBytes != proxy.DefaultRetryBodyBufferBytes {
+		t.Fatalf("RetryPolicy.BodyBufferBytes = %d, want %d", cfg.RetryPolicy.BodyBufferBytes, proxy.DefaultRetryBodyBufferBytes)
 	}
 }
 
@@ -242,6 +271,81 @@ func TestLoadFromEnvUsesConfiguredHealthLogGroupName(t *testing.T) {
 
 	if cfg.HealthLogGroupName != "/custom/health/log/group" {
 		t.Fatalf("HealthLogGroupName = %q", cfg.HealthLogGroupName)
+	}
+}
+
+func TestLoadFromEnvUsesConfiguredRetryPolicy(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := LoadFromEnv(func(key string) (string, bool) {
+		switch key {
+		case "BACKEND_RETRY_MAX_ATTEMPTS":
+			return "4", true
+		case "BACKEND_RETRY_INITIAL_BACKOFF":
+			return "25ms", true
+		case "BACKEND_RETRY_MAX_BACKOFF":
+			return "200ms", true
+		case "BACKEND_RETRY_BACKOFF_MULTIPLIER":
+			return "3", true
+		case "BACKEND_RETRY_METHODS":
+			return "GET,POST", true
+		case "BACKEND_RETRY_STATUS_CODES":
+			return "500,502-503", true
+		case "BACKEND_RETRY_ON_TRANSPORT_ERRORS":
+			return "true", true
+		case "BACKEND_RETRY_BODY_BUFFER_BYTES":
+			return "4096", true
+		default:
+			return "", false
+		}
+	}, func() (string, error) {
+		return "proxy-host", nil
+	})
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+
+	if cfg.RetryPolicy.MaxAttempts != 4 {
+		t.Fatalf("RetryPolicy.MaxAttempts = %d, want 4", cfg.RetryPolicy.MaxAttempts)
+	}
+	if cfg.RetryPolicy.InitialBackoff != 25*time.Millisecond {
+		t.Fatalf("RetryPolicy.InitialBackoff = %s, want 25ms", cfg.RetryPolicy.InitialBackoff)
+	}
+	if cfg.RetryPolicy.MaxBackoff != 200*time.Millisecond {
+		t.Fatalf("RetryPolicy.MaxBackoff = %s, want 200ms", cfg.RetryPolicy.MaxBackoff)
+	}
+	if cfg.RetryPolicy.BackoffMultiplier != 3 {
+		t.Fatalf("RetryPolicy.BackoffMultiplier = %v, want 3", cfg.RetryPolicy.BackoffMultiplier)
+	}
+	if !slices.Equal(cfg.RetryPolicy.Methods, []string{"GET", "POST"}) {
+		t.Fatalf("RetryPolicy.Methods = %#v", cfg.RetryPolicy.Methods)
+	}
+	if !slices.Equal(cfg.RetryPolicy.StatusCodes, []int{500, 502, 503}) {
+		t.Fatalf("RetryPolicy.StatusCodes = %#v", cfg.RetryPolicy.StatusCodes)
+	}
+	if !cfg.RetryPolicy.RetryOnTransportErrors {
+		t.Fatal("RetryPolicy.RetryOnTransportErrors = false, want true")
+	}
+	if cfg.RetryPolicy.BodyBufferBytes != 4096 {
+		t.Fatalf("RetryPolicy.BodyBufferBytes = %d, want 4096", cfg.RetryPolicy.BodyBufferBytes)
+	}
+}
+
+func TestLoadFromEnvRejectsInvalidRetryPolicy(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadFromEnv(func(key string) (string, bool) {
+		switch key {
+		case "BACKEND_RETRY_STATUS_CODES":
+			return "700", true
+		default:
+			return "", false
+		}
+	}, func() (string, error) {
+		return "proxy-host", nil
+	})
+	if err == nil {
+		t.Fatal("expected an error for invalid BACKEND_RETRY_STATUS_CODES")
 	}
 }
 

@@ -128,6 +128,51 @@ Examples:
 - Shared AWS credentials may still be loaded from standard AWS config files.
 - If no region can be resolved from env vars or metadata, CloudWatch integration must stay disabled.
 
+### `BACKEND_RETRY_MAX_ATTEMPTS`
+
+- Default: `2`
+- Total number of upstream attempts per request, including the first attempt.
+- Setting `BACKEND_RETRY_MAX_ATTEMPTS=1` must disable retry behavior.
+
+### `BACKEND_RETRY_INITIAL_BACKOFF`
+
+- Default: `50ms`
+- Duration to wait before the first retry attempt.
+
+### `BACKEND_RETRY_MAX_BACKOFF`
+
+- Default: `250ms`
+- Maximum delay allowed between retries.
+- `BACKEND_RETRY_MAX_BACKOFF` must be greater than or equal to `BACKEND_RETRY_INITIAL_BACKOFF`.
+
+### `BACKEND_RETRY_BACKOFF_MULTIPLIER`
+
+- Default: `2`
+- Exponential multiplier applied to each subsequent retry delay.
+- The multiplier must be greater than or equal to `1`.
+
+### `BACKEND_RETRY_METHODS`
+
+- Default: `GET,HEAD,OPTIONS`
+- Comma-separated list of HTTP methods eligible for retry behavior.
+
+### `BACKEND_RETRY_STATUS_CODES`
+
+- Default: `500-599`
+- Comma-separated list of upstream status codes or ranges that trigger a retry.
+- Supported examples include `500`, `502-504`, and `500,502-504`.
+
+### `BACKEND_RETRY_ON_TRANSPORT_ERRORS`
+
+- Default: `false`
+- When enabled, eligible requests may also retry upstream transport errors that are not caused by context cancellation or deadline expiration.
+
+### `BACKEND_RETRY_BODY_BUFFER_BYTES`
+
+- Default: `65536`
+- Maximum number of request-body bytes that may be buffered in memory to make a request replayable for retry.
+- If a request body is larger than this limit and does not already provide `GetBody`, the request must still be proxied, but it must not be retried.
+
 ---
 
 ## Log Format
@@ -142,6 +187,7 @@ Logs are emitted after each request/response pair is matched.
 - Health EMF events are written to `HEALTH_LOG_GROUP_NAME`, not `LOG_GROUP_NAME`.
 - Health log entries must include the health probe response body when one is available.
 - Health log entries must omit `_q` and `app_name`. Those fields are present only on traffic log entries.
+- Upstream retry behavior must happen below the logging layer so that only the final upstream result is logged and metered.
 
 Example stdout log entry:
 
@@ -237,6 +283,17 @@ Rules:
 - `RequestCount`, `Latency`, `RequestBodySize`, and `ResponseBodySize` must be emitted for both traffic dimension sets.
 - Exactly one of `2XXStatusCode`, `4XXStatusCode`, or `5XXStatusCode` must be emitted for both traffic dimension sets when the response falls into one of those ranges.
 - Traffic request logs and traffic metrics must be emitted together in the same CloudWatch Logs event when possible.
+- If an upstream response is retried internally, metrics must reflect the final upstream outcome only, while latency must include the full retry duration.
+
+### Upstream Retry Rules
+
+- Upstream retries must be configurable through the `BACKEND_RETRY_*` environment variables.
+- Retries must be evaluated only for methods listed in `BACKEND_RETRY_METHODS`.
+- Retries must be evaluated only for status codes listed in `BACKEND_RETRY_STATUS_CODES`, unless `BACKEND_RETRY_ON_TRANSPORT_ERRORS` is enabled for transport errors.
+- The retry implementation must use bounded exponential backoff from `BACKEND_RETRY_INITIAL_BACKOFF`, `BACKEND_RETRY_MAX_BACKOFF`, and `BACKEND_RETRY_BACKOFF_MULTIPLIER`.
+- Upgrade requests and `CONNECT` requests must never be retried.
+- Request bodies must be retried only when they are safely replayable through `GetBody` or when the buffered size stays within `BACKEND_RETRY_BODY_BUFFER_BYTES`.
+- Request bodies larger than `BACKEND_RETRY_BODY_BUFFER_BYTES` must not be buffered unboundedly and must not be retried automatically.
 
 ### Health Metrics
 

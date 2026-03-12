@@ -32,6 +32,7 @@ Detailed performance notes are in [PERFORMANCE.md](PERFORMANCE.md).
 - Adds 6-character structural hashes for query shape, request body shape, response body shape, and combined request/response shape
 - Parses JSON, form, and XML request and response bodies into structured log objects when possible
 - Truncates captured bodies instead of allowing unbounded memory growth
+- Retries configurable upstream `5xx` responses with bounded backoff and bounded request-body replay
 
 ## How It Works
 
@@ -110,6 +111,14 @@ Environment variables:
 | `HEALTH_URLS` | `{APP_HOST}:{APP_PORT}/health` | Comma-separated health endpoints |
 | `LOG_GROUP_NAME` | `/app/log/{APP_NAME}` | CloudWatch Logs group for traffic logs and traffic EMF |
 | `HEALTH_LOG_GROUP_NAME` | `/app/log/{APP_NAME}/health` | CloudWatch Logs group for health logs and health EMF |
+| `BACKEND_RETRY_MAX_ATTEMPTS` | `2` | Total upstream attempts per request, including the first attempt |
+| `BACKEND_RETRY_INITIAL_BACKOFF` | `50ms` | Delay before the first retry |
+| `BACKEND_RETRY_MAX_BACKOFF` | `250ms` | Maximum delay between retry attempts |
+| `BACKEND_RETRY_BACKOFF_MULTIPLIER` | `2` | Exponential backoff multiplier |
+| `BACKEND_RETRY_METHODS` | `GET,HEAD,OPTIONS` | HTTP methods eligible for retry |
+| `BACKEND_RETRY_STATUS_CODES` | `500-599` | Upstream status codes that trigger a retry |
+| `BACKEND_RETRY_ON_TRANSPORT_ERRORS` | `false` | Whether to retry transport-level upstream errors as well |
+| `BACKEND_RETRY_BODY_BUFFER_BYTES` | `65536` | Maximum request-body bytes buffered to make retried requests replayable |
 | `AWS_REGION` | unset | Preferred AWS region override |
 | `AWS_DEFAULT_REGION` | unset | Secondary AWS region override |
 
@@ -118,6 +127,14 @@ Current fixed runtime defaults:
 - health interval: `30s`
 - request body capture limit: `64 KiB`
 - response body capture limit: `64 KiB`
+
+Retry behavior:
+
+- retries are applied inside the upstream transport, so only the final upstream response is logged and metered
+- by default, retries are limited to `GET`, `HEAD`, and `OPTIONS`
+- requests with bodies are retried only when the body is replayable through `GetBody` or can be buffered within `BACKEND_RETRY_BODY_BUFFER_BYTES`
+- upgrade and `CONNECT` requests are never retried
+- set `BACKEND_RETRY_MAX_ATTEMPTS=1` to disable retries entirely
 
 Inspector mode details:
 

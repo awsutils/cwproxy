@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/awsutils/cwproxy/internal/proxy"
 )
 
 const (
@@ -18,6 +20,7 @@ const (
 	DefaultHealthPath     = "/health"
 	DefaultHealthInterval = 30 * time.Second
 	DefaultCaptureLimit   = 64 << 10
+	DefaultRetryStatuses  = "500-599"
 )
 
 type Config struct {
@@ -31,6 +34,7 @@ type Config struct {
 	HealthURLs         []*url.URL
 	HealthInterval     time.Duration
 	CaptureBodyLimit   int
+	RetryPolicy        proxy.RetryPolicy
 }
 
 type lookupEnvFunc func(string) (string, bool)
@@ -78,6 +82,10 @@ func LoadFromEnv(lookupEnv lookupEnvFunc, hostname hostnameFunc) (Config, error)
 	if healthLogGroupName == "" {
 		healthLogGroupName = fmt.Sprintf("/app/log/%s/health", appName)
 	}
+	retryPolicy, err := loadRetryPolicy(lookupEnv)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		ProxyPort:          proxyPort,
@@ -93,6 +101,7 @@ func LoadFromEnv(lookupEnv lookupEnvFunc, hostname hostnameFunc) (Config, error)
 		HealthURLs:       healthURLs,
 		HealthInterval:   DefaultHealthInterval,
 		CaptureBodyLimit: DefaultCaptureLimit,
+		RetryPolicy:      retryPolicy,
 	}, nil
 }
 
@@ -208,6 +217,52 @@ func envOrDefault(lookupEnv lookupEnvFunc, key, fallback string) string {
 	return fallback
 }
 
+func loadRetryPolicy(lookupEnv lookupEnvFunc) (proxy.RetryPolicy, error) {
+	maxAttempts, err := parsePositiveIntEnv(lookupEnv, "BACKEND_RETRY_MAX_ATTEMPTS", proxy.DefaultRetryMaxAttempts, 1)
+	if err != nil {
+		return proxy.RetryPolicy{}, err
+	}
+	initialBackoff, err := parseDurationEnv(lookupEnv, "BACKEND_RETRY_INITIAL_BACKOFF", proxy.DefaultRetryInitialBackoff)
+	if err != nil {
+		return proxy.RetryPolicy{}, err
+	}
+	maxBackoff, err := parseDurationEnv(lookupEnv, "BACKEND_RETRY_MAX_BACKOFF", proxy.DefaultRetryMaxBackoff)
+	if err != nil {
+		return proxy.RetryPolicy{}, err
+	}
+	if maxBackoff < initialBackoff {
+		return proxy.RetryPolicy{}, errors.New("BACKEND_RETRY_MAX_BACKOFF must be greater than or equal to BACKEND_RETRY_INITIAL_BACKOFF")
+	}
+	backoffMultiplier, err := parseFloatEnv(lookupEnv, "BACKEND_RETRY_BACKOFF_MULTIPLIER", proxy.DefaultRetryBackoffMultiplier, 1)
+	if err != nil {
+		return proxy.RetryPolicy{}, err
+	}
+	methods := parseCSVEnv(lookupEnv, "BACKEND_RETRY_METHODS", proxy.DefaultRetryMethods)
+	statusCodes, err := parseStatusCodesEnv(lookupEnv, "BACKEND_RETRY_STATUS_CODES", DefaultRetryStatuses)
+	if err != nil {
+		return proxy.RetryPolicy{}, err
+	}
+	retryOnTransportErrors, err := parseBoolEnv(lookupEnv, "BACKEND_RETRY_ON_TRANSPORT_ERRORS", false)
+	if err != nil {
+		return proxy.RetryPolicy{}, err
+	}
+	bodyBufferBytes, err := parsePositiveInt64Env(lookupEnv, "BACKEND_RETRY_BODY_BUFFER_BYTES", proxy.DefaultRetryBodyBufferBytes, 0)
+	if err != nil {
+		return proxy.RetryPolicy{}, err
+	}
+
+	return proxy.RetryPolicy{
+		MaxAttempts:            maxAttempts,
+		InitialBackoff:         initialBackoff,
+		MaxBackoff:             maxBackoff,
+		BackoffMultiplier:      backoffMultiplier,
+		Methods:                methods,
+		StatusCodes:            statusCodes,
+		RetryOnTransportErrors: retryOnTransportErrors,
+		BodyBufferBytes:        bodyBufferBytes,
+	}, nil
+}
+
 type partialHealthURL struct {
 	Scheme   string
 	Host     string
@@ -307,4 +362,111 @@ func parsePort(raw string) (int, error) {
 		return 0, fmt.Errorf("invalid port %q", raw)
 	}
 	return port, nil
+}
+
+func parseDurationEnv(lookupEnv lookupEnvFunc, key string, fallback time.Duration) (time.Duration, error) {
+	raw := strings.TrimSpace(envOrDefault(lookupEnv, key, ""))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid duration: %w", key, err)
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("%s must not be negative", key)
+	}
+	return value, nil
+}
+
+func parseFloatEnv(lookupEnv lookupEnvFunc, key string, fallback float64, minimum float64) (float64, error) {
+	raw := strings.TrimSpace(envOrDefault(lookupEnv, key, ""))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid number: %w", key, err)
+	}
+	if value < minimum {
+		return 0, fmt.Errorf("%s must be greater than or equal to %g", key, minimum)
+	}
+	return value, nil
+}
+
+func parsePositiveIntEnv(lookupEnv lookupEnvFunc, key string, fallback int, minimum int) (int, error) {
+	raw := strings.TrimSpace(envOrDefault(lookupEnv, key, ""))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid integer: %w", key, err)
+	}
+	if value < minimum {
+		return 0, fmt.Errorf("%s must be greater than or equal to %d", key, minimum)
+	}
+	return value, nil
+}
+
+func parsePositiveInt64Env(lookupEnv lookupEnvFunc, key string, fallback int64, minimum int64) (int64, error) {
+	raw := strings.TrimSpace(envOrDefault(lookupEnv, key, ""))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid integer: %w", key, err)
+	}
+	if value < minimum {
+		return 0, fmt.Errorf("%s must be greater than or equal to %d", key, minimum)
+	}
+	return value, nil
+}
+
+func parseBoolEnv(lookupEnv lookupEnvFunc, key string, fallback bool) (bool, error) {
+	raw := strings.TrimSpace(envOrDefault(lookupEnv, key, ""))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a valid boolean: %w", key, err)
+	}
+	return value, nil
+}
+
+func parseCSVEnv(lookupEnv lookupEnvFunc, key string, fallback []string) []string {
+	raw := strings.TrimSpace(envOrDefault(lookupEnv, key, ""))
+	if raw == "" {
+		return append([]string(nil), fallback...)
+	}
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		values = append(values, trimmed)
+	}
+	return values
+}
+
+func parseStatusCodesEnv(lookupEnv lookupEnvFunc, key, fallback string) ([]int, error) {
+	raw := strings.TrimSpace(envOrDefault(lookupEnv, key, fallback))
+	if raw == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(raw, ",")
+	statusCodes := make([]int, 0, len(parts))
+	for _, part := range parts {
+		codes, err := proxy.ParseStatusCodes(strings.TrimSpace(part))
+		if err != nil {
+			return nil, fmt.Errorf("%s contains invalid status code token %q: %w", key, strings.TrimSpace(part), err)
+		}
+		statusCodes = append(statusCodes, codes...)
+	}
+	return statusCodes, nil
 }
