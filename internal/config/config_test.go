@@ -331,6 +331,84 @@ func TestLoadFromEnvUsesConfiguredRetryPolicy(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvDefaultsHealthIntervalAndCaptureLimit(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := LoadFromEnv(emptyLookupEnv, func() (string, error) {
+		return "proxy-host", nil
+	})
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+	if cfg.HealthInterval != DefaultHealthInterval {
+		t.Fatalf("HealthInterval = %s, want %s", cfg.HealthInterval, DefaultHealthInterval)
+	}
+	if cfg.CaptureBodyLimit != DefaultCaptureLimit {
+		t.Fatalf("CaptureBodyLimit = %d, want %d", cfg.CaptureBodyLimit, DefaultCaptureLimit)
+	}
+}
+
+func TestLoadFromEnvUsesConfiguredHealthIntervalAndCaptureLimit(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := LoadFromEnv(func(key string) (string, bool) {
+		switch key {
+		case "HEALTH_INTERVAL":
+			return "10s", true
+		case "CAPTURE_BODY_LIMIT":
+			return "8192", true
+		default:
+			return "", false
+		}
+	}, func() (string, error) {
+		return "proxy-host", nil
+	})
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+	if cfg.HealthInterval != 10*time.Second {
+		t.Fatalf("HealthInterval = %s, want 10s", cfg.HealthInterval)
+	}
+	if cfg.CaptureBodyLimit != 8192 {
+		t.Fatalf("CaptureBodyLimit = %d, want 8192", cfg.CaptureBodyLimit)
+	}
+}
+
+func TestLoadFromEnvRejectsInvalidHealthIntervalAndCaptureLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		key  string
+		val  string
+	}{
+		{"zero health interval", "HEALTH_INTERVAL", "0s"},
+		{"sub-second health interval", "HEALTH_INTERVAL", "500ms"},
+		{"negative health interval", "HEALTH_INTERVAL", "-5s"},
+		{"zero capture limit", "CAPTURE_BODY_LIMIT", "0"},
+		{"negative capture limit", "CAPTURE_BODY_LIMIT", "-1"},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := LoadFromEnv(func(key string) (string, bool) {
+				if key == test.key {
+					return test.val, true
+				}
+				return "", false
+			}, func() (string, error) {
+				return "proxy-host", nil
+			})
+			if err == nil {
+				t.Fatalf("expected error for %s=%s", test.key, test.val)
+			}
+		})
+	}
+}
+
 func TestLoadFromEnvRejectsInvalidRetryPolicy(t *testing.T) {
 	t.Parallel()
 

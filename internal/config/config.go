@@ -21,6 +21,9 @@ const (
 	DefaultHealthInterval = 30 * time.Second
 	DefaultCaptureLimit   = 64 << 10
 	DefaultRetryStatuses  = "500-599"
+
+	minHealthInterval = time.Second
+	minCaptureLimit   = 1
 )
 
 type Config struct {
@@ -87,6 +90,16 @@ func LoadFromEnv(lookupEnv lookupEnvFunc, hostname hostnameFunc) (Config, error)
 		return Config{}, err
 	}
 
+	healthInterval, err := parseHealthIntervalEnv(lookupEnv)
+	if err != nil {
+		return Config{}, err
+	}
+
+	captureBodyLimit, err := parseCaptureLimitEnv(lookupEnv)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		ProxyPort:          proxyPort,
 		AppHost:            appHost,
@@ -99,8 +112,8 @@ func LoadFromEnv(lookupEnv lookupEnvFunc, hostname hostnameFunc) (Config, error)
 			Host:   net.JoinHostPort(appHost, strconv.Itoa(appPort)),
 		},
 		HealthURLs:       healthURLs,
-		HealthInterval:   DefaultHealthInterval,
-		CaptureBodyLimit: DefaultCaptureLimit,
+		HealthInterval:   healthInterval,
+		CaptureBodyLimit: captureBodyLimit,
 		RetryPolicy:      retryPolicy,
 	}, nil
 }
@@ -451,6 +464,25 @@ func parseCSVEnv(lookupEnv lookupEnvFunc, key string, fallback []string) []strin
 		values = append(values, trimmed)
 	}
 	return values
+}
+
+func parseHealthIntervalEnv(lookupEnv lookupEnvFunc) (time.Duration, error) {
+	interval, err := parseDurationEnv(lookupEnv, "HEALTH_INTERVAL", DefaultHealthInterval)
+	if err != nil {
+		return 0, err
+	}
+	if interval < minHealthInterval {
+		return 0, fmt.Errorf("HEALTH_INTERVAL must be at least %s", minHealthInterval)
+	}
+	return interval, nil
+}
+
+func parseCaptureLimitEnv(lookupEnv lookupEnvFunc) (int, error) {
+	limit, err := parsePositiveIntEnv(lookupEnv, "CAPTURE_BODY_LIMIT", DefaultCaptureLimit, minCaptureLimit)
+	if err != nil {
+		return 0, err
+	}
+	return limit, nil
 }
 
 func parseStatusCodesEnv(lookupEnv lookupEnvFunc, key, fallback string) ([]int, error) {

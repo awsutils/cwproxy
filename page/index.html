@@ -794,6 +794,8 @@ logs:PutLogEvents</code></pre>
 
             <tr class="field-group-head"><td colspan="3">Health</td></tr>
             <tr><td>HEALTH_URLS</td><td>{APP_HOST}:{APP_PORT}/health</td><td>Comma-separated health probe endpoints. Partial URLs are resolved against APP_HOST/APP_PORT.</td></tr>
+            <tr><td>HEALTH_INTERVAL</td><td>30s</td><td>Health probe interval. Must be at least 1s.</td></tr>
+            <tr><td>CAPTURE_BODY_LIMIT</td><td>65536</td><td>Maximum bytes captured per request or response body. Bodies exceeding this are truncated and flagged. Must be at least 1.</td></tr>
 
             <tr class="field-group-head"><td colspan="3">CloudWatch Logs</td></tr>
             <tr><td>LOG_GROUP_NAME</td><td>/app/log/{APP_NAME}</td><td>CloudWatch Logs group for traffic logs and traffic EMF.</td></tr>
@@ -813,10 +815,6 @@ logs:PutLogEvents</code></pre>
           </tbody>
         </table>
 
-        <div class="callout" style="margin-top:16px">
-          <strong>Fixed runtime defaults</strong> (not configurable via env): health probe interval 30 s,
-          request body capture limit 64 KiB, response body capture limit 64 KiB.
-        </div>
       </section>
 
       <!-- ═══════════════════ OPERATIONAL SAFETY ═══════════════════════ -->

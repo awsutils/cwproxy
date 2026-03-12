@@ -109,6 +109,8 @@ Environment variables:
 | `APP_PORT` | `8080` | Upstream application port. In inspector mode, this overrides automatic listen-port detection when explicitly set |
 | `APP_NAME` | EKS deployment name, then ECS task family, then hostname, then `cwproxy` | Application name used in logs and metric dimensions |
 | `HEALTH_URLS` | `{APP_HOST}:{APP_PORT}/health` | Comma-separated health endpoints |
+| `HEALTH_INTERVAL` | `30s` | Health probe interval. Must be at least `1s` |
+| `CAPTURE_BODY_LIMIT` | `65536` | Maximum request and response body bytes captured per exchange. Must be at least `1` |
 | `LOG_GROUP_NAME` | `/app/log/{APP_NAME}` | CloudWatch Logs group for traffic logs and traffic EMF |
 | `HEALTH_LOG_GROUP_NAME` | `/app/log/{APP_NAME}/health` | CloudWatch Logs group for health logs and health EMF |
 | `BACKEND_RETRY_MAX_ATTEMPTS` | `2` | Total upstream attempts per request, including the first attempt |
@@ -121,12 +123,6 @@ Environment variables:
 | `BACKEND_RETRY_BODY_BUFFER_BYTES` | `65536` | Maximum request-body bytes buffered to make retried requests replayable |
 | `AWS_REGION` | unset | Preferred AWS region override |
 | `AWS_DEFAULT_REGION` | unset | Secondary AWS region override |
-
-Current fixed runtime defaults:
-
-- health interval: `30s`
-- request body capture limit: `64 KiB`
-- response body capture limit: `64 KiB`
 
 Retry behavior:
 
